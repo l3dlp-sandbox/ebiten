@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 // Mascot is a desktop mascot on cross platforms.
 // This is inspired by mattn's gopher (https://github.com/mattn/gopher).
 package main
@@ -83,7 +80,7 @@ func (m *mascot) Layout(outsideWidth, outsideHeight int) (int, int) {
 func (m *mascot) Update() error {
 	m.count++
 
-	sw, sh := ebiten.ScreenSizeInFullscreen()
+	sw, sh := ebiten.Monitor().Size()
 	ebiten.SetWindowPosition(m.x16/16, m.y16/16+sh-height)
 
 	if m.vx16 == 0 {
@@ -142,11 +139,15 @@ func (m *mascot) Draw(screen *ebiten.Image) {
 }
 
 func main() {
-	ebiten.SetScreenTransparent(true)
 	ebiten.SetWindowDecorated(false)
 	ebiten.SetWindowFloating(true)
 	ebiten.SetWindowSize(width, height)
-	if err := ebiten.RunGame(&mascot{}); err != nil {
+	ebiten.SetWindowMousePassthrough(true)
+
+	op := &ebiten.RunGameOptions{}
+	op.ScreenTransparent = true
+	op.SkipTaskbar = true
+	if err := ebiten.RunGameWithOptions(&mascot{}, op); err != nil {
 		log.Fatal(err)
 	}
 }

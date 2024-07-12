@@ -23,9 +23,9 @@ type CursorModeType = ui.CursorMode
 
 // CursorModeTypes
 const (
-	CursorModeVisible  CursorModeType = CursorModeType(ui.CursorModeVisible)
-	CursorModeHidden   CursorModeType = CursorModeType(ui.CursorModeHidden)
-	CursorModeCaptured CursorModeType = CursorModeType(ui.CursorModeCaptured)
+	CursorModeVisible  CursorModeType = ui.CursorModeVisible
+	CursorModeHidden   CursorModeType = ui.CursorModeHidden
+	CursorModeCaptured CursorModeType = ui.CursorModeCaptured
 )
 
 // CursorShapeType represents a shape of a mouse cursor.
@@ -33,10 +33,14 @@ type CursorShapeType = ui.CursorShape
 
 // CursorShapeTypes
 const (
-	CursorShapeDefault   CursorShapeType = CursorShapeType(ui.CursorShapeDefault)
-	CursorShapeText      CursorShapeType = CursorShapeType(ui.CursorShapeText)
-	CursorShapeCrosshair CursorShapeType = CursorShapeType(ui.CursorShapeCrosshair)
-	CursorShapePointer   CursorShapeType = CursorShapeType(ui.CursorShapePointer)
-	CursorShapeEWResize  CursorShapeType = CursorShapeType(ui.CursorShapeEWResize)
-	CursorShapeNSResize  CursorShapeType = CursorShapeType(ui.CursorShapeNSResize)
+	CursorShapeDefault    CursorShapeType = CursorShapeType(ui.CursorShapeDefault)
+	CursorShapeText       CursorShapeType = CursorShapeType(ui.CursorShapeText)
+	CursorShapeCrosshair  CursorShapeType = CursorShapeType(ui.CursorShapeCrosshair)
+	CursorShapePointer    CursorShapeType = CursorShapeType(ui.CursorShapePointer)
+	CursorShapeEWResize   CursorShapeType = CursorShapeType(ui.CursorShapeEWResize)
+	CursorShapeNSResize   CursorShapeType = CursorShapeType(ui.CursorShapeNSResize)
+	CursorShapeNESWResize CursorShapeType = CursorShapeType(ui.CursorShapeNESWResize)
+	CursorShapeNWSEResize CursorShapeType = CursorShapeType(ui.CursorShapeNWSEResize)
+	CursorShapeMove       CursorShapeType = CursorShapeType(ui.CursorShapeMove)
+	CursorShapeNotAllowed CursorShapeType = CursorShapeType(ui.CursorShapeNotAllowed)
 )

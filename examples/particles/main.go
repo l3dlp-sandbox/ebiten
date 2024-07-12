@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -62,7 +59,7 @@ type sprite struct {
 	img   *ebiten.Image
 	scale float64
 	angle float64
-	alpha float64
+	alpha float32
 }
 
 func (s *sprite) update() {
@@ -90,15 +87,15 @@ func (s *sprite) draw(screen *ebiten.Image) {
 
 	op := &ebiten.DrawImageOptions{}
 
-	sx, sy := s.img.Size()
+	sx, sy := s.img.Bounds().Dx(), s.img.Bounds().Dy()
 	op.GeoM.Translate(-float64(sx)/2, -float64(sy)/2)
 	op.GeoM.Rotate(s.angle)
 	op.GeoM.Scale(s.scale, s.scale)
 	op.GeoM.Translate(x, y)
 	op.GeoM.Translate(ox, oy)
 
-	rate := float64(s.count) / float64(s.maxCount)
-	alpha := 0.0
+	rate := float32(s.count) / float32(s.maxCount)
+	var alpha float32
 	if rate < 0.2 {
 		alpha = rate / 0.2
 	} else if rate > 0.8 {
@@ -107,7 +104,7 @@ func (s *sprite) draw(screen *ebiten.Image) {
 		alpha = 1
 	}
 	alpha *= s.alpha
-	op.ColorM.Scale(1, 1, 1, alpha)
+	op.ColorScale.ScaleAlpha(alpha)
 
 	screen.DrawImage(s.img, op)
 }

@@ -13,25 +13,52 @@
 // limitations under the License.
 
 //go:build !android && !ios && !js
-// +build !android,!ios,!js
 
 package processtest_test
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
+func isWSL() (bool, error) {
+	if runtime.GOOS != "windows" {
+		return false, nil
+	}
+	abs, err := filepath.Abs(".")
+	if err != nil {
+		return false, err
+	}
+	return strings.HasPrefix(abs, `\\wsl$\`), nil
+}
+
 func TestPrograms(t *testing.T) {
+	wsl, err := isWSL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wsl {
+		t.Skip("WSL doesn't support LockFileEx (#1864)")
+	}
+
 	dir := "testdata"
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	tmpdir := t.TempDir()
+
+	// Run sub-tests one by one, not in parallel (#2571).
+	var m sync.Mutex
 
 	for _, e := range ents {
 		if e.IsDir() {
@@ -43,7 +70,18 @@ func TestPrograms(t *testing.T) {
 		}
 
 		t.Run(n, func(t *testing.T) {
-			cmd := exec.Command("go", "run", filepath.Join(dir, n))
+			m.Lock()
+			defer m.Unlock()
+
+			bin := filepath.Join(tmpdir, n)
+			if out, err := exec.Command("go", "build", "-o", bin, filepath.Join(dir, n)).CombinedOutput(); err != nil {
+				t.Fatalf("%v\n%s", err, string(out))
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+
+			cmd := exec.CommandContext(ctx, bin)
 			stderr := &bytes.Buffer{}
 			cmd.Stderr = stderr
 			if err := cmd.Run(); err != nil {

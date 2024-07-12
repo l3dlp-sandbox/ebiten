@@ -14,7 +14,18 @@
 
 package ui
 
+// #cgo CFLAGS: -x objective-c
+// #cgo LDFLAGS: -framework Foundation -framework UIKit
+//
+// #import <UIKit/UIKit.h>
+//
+// static double devicePixelRatio() {
+//   return [[UIScreen mainScreen] nativeScale];
+// }
+import "C"
+
 import (
+	"errors"
 	"fmt"
 
 	"github.com/hajimehoshi/ebiten/v2/internal/graphicsdriver"
@@ -23,7 +34,6 @@ import (
 )
 
 type graphicsDriverCreatorImpl struct {
-	gomobileBuild bool
 }
 
 func (g *graphicsDriverCreatorImpl) newAuto() (graphicsdriver.Graphics, GraphicsLibrary, error) {
@@ -38,28 +48,51 @@ func (g *graphicsDriverCreatorImpl) newAuto() (graphicsdriver.Graphics, Graphics
 	return nil, GraphicsLibraryUnknown, fmt.Errorf("ui: failed to choose graphics drivers: Metal: %v, OpenGL: %v", err1, err2)
 }
 
-func (*graphicsDriverCreatorImpl) newOpenGL() (graphicsdriver.Graphics, error) {
+func (g *graphicsDriverCreatorImpl) newOpenGL() (graphicsdriver.Graphics, error) {
 	return opengl.NewGraphics()
 }
 
 func (*graphicsDriverCreatorImpl) newDirectX() (graphicsdriver.Graphics, error) {
-	return nil, nil
+	return nil, errors.New("ui: DirectX is not supported in this environment")
 }
 
 func (g *graphicsDriverCreatorImpl) newMetal() (graphicsdriver.Graphics, error) {
-	if g.gomobileBuild {
-		return nil, fmt.Errorf("ui: Metal is not available with gomobile-build")
-	}
 	return metal.NewGraphics()
 }
 
-func SetUIView(uiview uintptr) {
-	// This function should be called only when the graphics library is Metal.
-	if g, ok := theUI.graphicsDriver.(interface{ SetUIView(uintptr) }); ok {
-		g.SetUIView(uiview)
-	}
+func (*graphicsDriverCreatorImpl) newPlayStation5() (graphicsdriver.Graphics, error) {
+	return nil, errors.New("ui: PlayStation 5 is not supported in this environment")
 }
 
-func IsGL() bool {
-	return theUI.graphicsDriver.IsGL()
+func (u *UserInterface) SetUIView(uiview uintptr) error {
+	select {
+	case err := <-u.errCh:
+		return err
+	case <-u.graphicsLibraryInitCh:
+	}
+
+	// This function should be called only when the graphics library is Metal.
+	if g, ok := u.graphicsDriver.(interface{ SetUIView(uintptr) }); ok {
+		g.SetUIView(uiview)
+	}
+	return nil
+}
+
+func (u *UserInterface) IsGL() (bool, error) {
+	select {
+	case err := <-u.errCh:
+		return false, err
+	case <-u.graphicsLibraryInitCh:
+	}
+
+	return u.GraphicsLibrary() == GraphicsLibraryOpenGL, nil
+}
+
+func deviceScaleFactorImpl() float64 {
+	// TODO: Can this be called from non-main threads?
+	return float64(C.devicePixelRatio())
+}
+
+func dipToNativePixels(x float64, scale float64) float64 {
+	return x
 }

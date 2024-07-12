@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !ios && !nintendosdk
-// +build !ios,!nintendosdk
+//go:build !ios
 
 package gamepad
 
@@ -41,6 +40,13 @@ func newNativeGamepadsImpl() nativeGamepads {
 }
 
 func (g *nativeGamepadsImpl) init(gamepads *gamepads) error {
+	if err := initializeCF(); err != nil {
+		return err
+	}
+	if err := initializeIOKit(); err != nil {
+		return err
+	}
+
 	var dicts []_CFDictionaryRef
 
 	page := kHIDPage_GenericDesktop
@@ -146,25 +152,33 @@ func (g *nativeGamepadsImpl) addDevice(device _IOHIDDeviceRef, gamepads *gamepad
 		return
 	}
 
+	elements := _IOHIDDeviceCopyMatchingElements(device, 0, kIOHIDOptionsTypeNone)
+	// It is reportedly possible for this to fail on macOS 13 Ventura
+	// if the application does not have input monitoring permissions
+	if elements == 0 {
+		return
+	}
+	defer _CFRelease(_CFTypeRef(elements))
+
 	name := "Unknown"
-	if prop := _IOHIDDeviceGetProperty(_IOHIDDeviceRef(device), _CFStringCreateWithCString(kCFAllocatorDefault, kIOHIDProductKey, kCFStringEncodingUTF8)); prop != 0 {
+	if prop := _IOHIDDeviceGetProperty(device, _CFStringCreateWithCString(kCFAllocatorDefault, kIOHIDProductKey, kCFStringEncodingUTF8)); prop != 0 {
 		var cstr [256]byte
 		_CFStringGetCString(_CFStringRef(prop), cstr[:], kCFStringEncodingUTF8)
 		name = strings.TrimRight(string(cstr[:]), "\x00")
 	}
 
 	var vendor uint32
-	if prop := _IOHIDDeviceGetProperty(_IOHIDDeviceRef(device), _CFStringCreateWithCString(kCFAllocatorDefault, kIOHIDVendorIDKey, kCFStringEncodingUTF8)); prop != 0 {
+	if prop := _IOHIDDeviceGetProperty(device, _CFStringCreateWithCString(kCFAllocatorDefault, kIOHIDVendorIDKey, kCFStringEncodingUTF8)); prop != 0 {
 		_CFNumberGetValue(_CFNumberRef(prop), kCFNumberSInt32Type, unsafe.Pointer(&vendor))
 	}
 
 	var product uint32
-	if prop := _IOHIDDeviceGetProperty(_IOHIDDeviceRef(device), _CFStringCreateWithCString(kCFAllocatorDefault, kIOHIDProductIDKey, kCFStringEncodingUTF8)); prop != 0 {
+	if prop := _IOHIDDeviceGetProperty(device, _CFStringCreateWithCString(kCFAllocatorDefault, kIOHIDProductIDKey, kCFStringEncodingUTF8)); prop != 0 {
 		_CFNumberGetValue(_CFNumberRef(prop), kCFNumberSInt32Type, unsafe.Pointer(&product))
 	}
 
 	var version uint32
-	if prop := _IOHIDDeviceGetProperty(_IOHIDDeviceRef(device), _CFStringCreateWithCString(kCFAllocatorDefault, kIOHIDVersionNumberKey, kCFStringEncodingUTF8)); prop != 0 {
+	if prop := _IOHIDDeviceGetProperty(device, _CFStringCreateWithCString(kCFAllocatorDefault, kIOHIDVersionNumberKey, kCFStringEncodingUTF8)); prop != 0 {
 		_CFNumberGetValue(_CFNumberRef(prop), kCFNumberSInt32Type, unsafe.Pointer(&version))
 	}
 
@@ -183,17 +197,14 @@ func (g *nativeGamepadsImpl) addDevice(device _IOHIDDeviceRef, gamepads *gamepad
 			bs[0], bs[1], bs[2], bs[3], bs[4], bs[5], bs[6], bs[7], bs[8], bs[9], bs[10], bs[11])
 	}
 
-	elements := _IOHIDDeviceCopyMatchingElements(device, 0, kIOHIDOptionsTypeNone)
-	defer _CFRelease(_CFTypeRef(elements))
-
 	n := &nativeGamepadImpl{
 		device: device,
 	}
 	gp := gamepads.add(name, sdlID)
 	gp.native = n
 
-	for i := _CFIndex(0); i < _CFArrayGetCount(_CFArrayRef(elements)); i++ {
-		native := (_IOHIDElementRef)(_CFArrayGetValueAtIndex(_CFArrayRef(elements), i))
+	for i := _CFIndex(0); i < _CFArrayGetCount(elements); i++ {
+		native := (_IOHIDElementRef)(_CFArrayGetValueAtIndex(elements, i))
 		if _CFGetTypeID(_CFTypeRef(native)) != _IOHIDElementGetTypeID() {
 			continue
 		}
@@ -373,12 +384,12 @@ func (g *nativeGamepadImpl) hasOwnStandardLayoutMapping() bool {
 	return false
 }
 
-func (g *nativeGamepadImpl) isStandardAxisAvailableInOwnMapping(axis gamepaddb.StandardAxis) bool {
-	return false
+func (*nativeGamepadImpl) standardAxisInOwnMapping(axis gamepaddb.StandardAxis) mappingInput {
+	return nil
 }
 
-func (g *nativeGamepadImpl) isStandardButtonAvailableInOwnMapping(button gamepaddb.StandardButton) bool {
-	return false
+func (*nativeGamepadImpl) standardButtonInOwnMapping(button gamepaddb.StandardButton) mappingInput {
+	return nil
 }
 
 func (g *nativeGamepadImpl) axisCount() int {
@@ -393,6 +404,10 @@ func (g *nativeGamepadImpl) hatCount() int {
 	return len(g.hatValues)
 }
 
+func (g *nativeGamepadImpl) isAxisReady(axis int) bool {
+	return axis >= 0 && axis < g.axisCount()
+}
+
 func (g *nativeGamepadImpl) axisValue(axis int) float64 {
 	if axis < 0 || axis >= len(g.axisValues) {
 		return 0
@@ -401,7 +416,10 @@ func (g *nativeGamepadImpl) axisValue(axis int) float64 {
 }
 
 func (g *nativeGamepadImpl) buttonValue(button int) float64 {
-	panic("gamepad: buttonValue is not implemented")
+	if g.isButtonPressed(button) {
+		return 1
+	}
+	return 0
 }
 
 func (g *nativeGamepadImpl) isButtonPressed(button int) bool {

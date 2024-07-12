@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 // This example is an experiment to minify images with various filters.
 // When linear filter is used, mipmap images should be used for high-quality rendering (#578).
 
@@ -69,7 +66,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	clippedGophersImage := gophersImage.SubImage(image.Rect(100, 100, 200, 200)).(*ebiten.Image)
 	for i, f := range []ebiten.Filter{ebiten.FilterNearest, ebiten.FilterLinear} {
-		w, h := gophersImage.Size()
+		w, h := gophersImage.Bounds().Dx(), gophersImage.Bounds().Dy()
 
 		op := &ebiten.DrawImageOptions{}
 		if g.rotate {

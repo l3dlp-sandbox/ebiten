@@ -17,20 +17,33 @@ package convert
 import (
 	"io"
 	"math"
+	"sync"
 )
 
-var cosTable = [65536]float64{}
+var (
+	// cosTable contains values of cosine applied to the range [0, π/2).
+	// It must be initialised the first time it is referenced
+	// in a function via its lazy load wrapper getCosTable().
+	cosTable     []float64
+	cosTableOnce sync.Once
+)
 
-func init() {
-	for i := range cosTable {
-		cosTable[i] = math.Cos(float64(i) * math.Pi / 2 / float64(len(cosTable)))
-	}
+func ensureCosTable() []float64 {
+	cosTableOnce.Do(func() {
+		cosTable = make([]float64, 65536)
+		for i := range cosTable {
+			cosTable[i] = math.Cos(float64(i) * math.Pi / 2 / float64(len(cosTable)))
+		}
+	})
+	return cosTable
 }
 
 func fastCos01(x float64) float64 {
 	if x < 0 {
 		x = -x
 	}
+
+	cosTable := ensureCosTable()
 	i := int(4 * float64(len(cosTable)) * x)
 	if 4*len(cosTable) < i {
 		i %= 4 * len(cosTable)
@@ -100,7 +113,7 @@ func (r *Resampling) src(i int64) (float64, float64, error) {
 	if i < 0 {
 		return 0, 0, nil
 	}
-	if r.size/4 <= int64(i) {
+	if r.size/4 <= i {
 		return 0, 0, nil
 	}
 	nextPos := int64(i) / resamplingBufferSize

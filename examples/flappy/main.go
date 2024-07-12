@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
 	"bytes"
+	_ "embed"
+	"flag"
 	"fmt"
 	"image"
 	"image/color"
@@ -27,9 +26,6 @@ import (
 	"math"
 	"math/rand"
 	"time"
-
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/opentype"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/audio"
@@ -40,8 +36,13 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/examples/resources/fonts"
 	resources "github.com/hajimehoshi/ebiten/v2/examples/resources/images/flappy"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/hajimehoshi/ebiten/v2/text"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
+
+var flagCRT = flag.Bool("crt", false, "enable the CRT effect")
+
+//go:embed crt.go
+var crtGo []byte
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
@@ -73,11 +74,9 @@ const (
 )
 
 var (
-	gopherImage     *ebiten.Image
-	tilesImage      *ebiten.Image
-	titleArcadeFont font.Face
-	arcadeFont      font.Face
-	smallArcadeFont font.Face
+	gopherImage      *ebiten.Image
+	tilesImage       *ebiten.Image
+	arcadeFaceSource *text.GoTextFaceSource
 )
 
 func init() {
@@ -95,35 +94,11 @@ func init() {
 }
 
 func init() {
-	tt, err := opentype.Parse(fonts.PressStart2P_ttf)
+	s, err := text.NewGoTextFaceSource(bytes.NewReader(fonts.PressStart2P_ttf))
 	if err != nil {
 		log.Fatal(err)
 	}
-	const dpi = 72
-	titleArcadeFont, err = opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    titleFontSize,
-		DPI:     dpi,
-		Hinting: font.HintingFull,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	arcadeFont, err = opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    fontSize,
-		DPI:     dpi,
-		Hinting: font.HintingFull,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	smallArcadeFont, err = opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    smallFontSize,
-		DPI:     dpi,
-		Hinting: font.HintingFull,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
+	arcadeFaceSource = s
 }
 
 type Mode int
@@ -159,9 +134,12 @@ type Game struct {
 	hitPlayer    *audio.Player
 }
 
-func NewGame() *Game {
+func NewGame(crt bool) ebiten.Game {
 	g := &Game{}
 	g.init()
+	if crt {
+		return &GameWithCRTEffect{Game: g}
+	}
 	return g
 }
 
@@ -285,37 +263,62 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.mode != ModeTitle {
 		g.drawGopher(screen)
 	}
-	var titleTexts []string
-	var texts []string
+
+	var titleTexts string
+	var texts string
 	switch g.mode {
 	case ModeTitle:
-		titleTexts = []string{"FLAPPY GOPHER"}
-		texts = []string{"", "", "", "", "", "", "", "PRESS SPACE KEY", "", "OR A/B BUTTON", "", "OR TOUCH SCREEN"}
+		titleTexts = "FLAPPY GOPHER"
+		texts = "\n\n\n\n\n\nPRESS SPACE KEY\n\nOR A/B BUTTON\n\nOR TOUCH SCREEN"
 	case ModeGameOver:
-		texts = []string{"", "GAME OVER!"}
+		texts = "\nGAME OVER!"
 	}
-	for i, l := range titleTexts {
-		x := (screenWidth - len(l)*titleFontSize) / 2
-		text.Draw(screen, l, titleArcadeFont, x, (i+4)*titleFontSize, color.White)
-	}
-	for i, l := range texts {
-		x := (screenWidth - len(l)*fontSize) / 2
-		text.Draw(screen, l, arcadeFont, x, (i+4)*fontSize, color.White)
-	}
+
+	op := &text.DrawOptions{}
+	op.GeoM.Translate(screenWidth/2, 3*titleFontSize)
+	op.ColorScale.ScaleWithColor(color.White)
+	op.LineSpacing = titleFontSize
+	op.PrimaryAlign = text.AlignCenter
+	text.Draw(screen, titleTexts, &text.GoTextFace{
+		Source: arcadeFaceSource,
+		Size:   titleFontSize,
+	}, op)
+
+	op = &text.DrawOptions{}
+	op.GeoM.Translate(screenWidth/2, 3*titleFontSize)
+	op.ColorScale.ScaleWithColor(color.White)
+	op.LineSpacing = fontSize
+	op.PrimaryAlign = text.AlignCenter
+	text.Draw(screen, texts, &text.GoTextFace{
+		Source: arcadeFaceSource,
+		Size:   fontSize,
+	}, op)
 
 	if g.mode == ModeTitle {
-		msg := []string{
-			"Go Gopher by Renee French is",
-			"licenced under CC BY 3.0.",
-		}
-		for i, l := range msg {
-			x := (screenWidth - len(l)*smallFontSize) / 2
-			text.Draw(screen, l, smallArcadeFont, x, screenHeight-4+(i-1)*smallFontSize, color.White)
-		}
+		const msg = "Go Gopher by Renee French is\nlicenced under CC BY 3.0."
+
+		op := &text.DrawOptions{}
+		op.GeoM.Translate(screenWidth/2, screenHeight-smallFontSize/2)
+		op.ColorScale.ScaleWithColor(color.White)
+		op.LineSpacing = smallFontSize
+		op.PrimaryAlign = text.AlignCenter
+		op.SecondaryAlign = text.AlignEnd
+		text.Draw(screen, msg, &text.GoTextFace{
+			Source: arcadeFaceSource,
+			Size:   smallFontSize,
+		}, op)
 	}
 
-	scoreStr := fmt.Sprintf("%04d", g.score())
-	text.Draw(screen, scoreStr, arcadeFont, screenWidth-len(scoreStr)*fontSize, fontSize, color.White)
+	op = &text.DrawOptions{}
+	op.GeoM.Translate(screenWidth, 0)
+	op.ColorScale.ScaleWithColor(color.White)
+	op.LineSpacing = fontSize
+	op.PrimaryAlign = text.AlignEnd
+	text.Draw(screen, fmt.Sprintf("%04d", g.score()), &text.GoTextFace{
+		Source: arcadeFaceSource,
+		Size:   fontSize,
+	}, op)
+
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("TPS: %0.2f", ebiten.ActualTPS()))
 }
 
@@ -346,7 +349,7 @@ func (g *Game) hit() bool {
 		gopherWidth  = 30
 		gopherHeight = 60
 	)
-	w, h := gopherImage.Size()
+	w, h := gopherImage.Bounds().Dx(), gopherImage.Bounds().Dy()
 	x0 := floorDiv(g.x16, 16) + (w-gopherWidth)/2
 	y0 := floorDiv(g.y16, 16) + (h-gopherHeight)/2
 	x1 := x0 + gopherWidth
@@ -430,7 +433,7 @@ func (g *Game) drawTiles(screen *ebiten.Image) {
 
 func (g *Game) drawGopher(screen *ebiten.Image) {
 	op := &ebiten.DrawImageOptions{}
-	w, h := gopherImage.Size()
+	w, h := gopherImage.Bounds().Dx(), gopherImage.Bounds().Dy()
 	op.GeoM.Translate(-float64(w)/2.0, -float64(h)/2.0)
 	op.GeoM.Rotate(float64(g.vy16) / 96.0 * math.Pi / 6)
 	op.GeoM.Translate(float64(w)/2.0, float64(h)/2.0)
@@ -439,10 +442,34 @@ func (g *Game) drawGopher(screen *ebiten.Image) {
 	screen.DrawImage(gopherImage, op)
 }
 
+type GameWithCRTEffect struct {
+	ebiten.Game
+
+	crtShader *ebiten.Shader
+}
+
+func (g *GameWithCRTEffect) DrawFinalScreen(screen ebiten.FinalScreen, offscreen *ebiten.Image, geoM ebiten.GeoM) {
+	if g.crtShader == nil {
+		s, err := ebiten.NewShader(crtGo)
+		if err != nil {
+			panic(fmt.Sprintf("flappy: failed to compiled the CRT shader: %v", err))
+		}
+		g.crtShader = s
+	}
+
+	os := offscreen.Bounds().Size()
+
+	op := &ebiten.DrawRectShaderOptions{}
+	op.Images[0] = offscreen
+	op.GeoM = geoM
+	screen.DrawRectShader(os.X, os.Y, g.crtShader, op)
+}
+
 func main() {
+	flag.Parse()
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("Flappy Gopher (Ebitengine Demo)")
-	if err := ebiten.RunGame(NewGame()); err != nil {
+	if err := ebiten.RunGame(NewGame(*flagCRT)); err != nil {
 		panic(err)
 	}
 }

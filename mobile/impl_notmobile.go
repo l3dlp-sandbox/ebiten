@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build !android && !ios
-// +build !android,!ios
 
 package mobile
 
@@ -21,6 +20,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-func setGame(game ebiten.Game) {
+func setGame(game ebiten.Game, options *ebiten.RunGameOptions) {
 	panic("mobile: setGame is not implemented in this environment")
 }

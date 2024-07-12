@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -27,6 +24,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 const (
@@ -104,6 +102,8 @@ func (g *Game) reset() {
 }
 
 func (g *Game) Update() error {
+	// Decide the snake's direction along with the user input.
+	// A U-turn is forbidden here (e.g. if the snake is moving in the left direction, the snake cannot go to the right direction immediately).
 	if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) || inpututil.IsKeyJustPressed(ebiten.KeyA) {
 		if g.moveDirection != dirRight {
 			g.moveDirection = dirLeft
@@ -174,9 +174,9 @@ func (g *Game) Update() error {
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	for _, v := range g.snakeBody {
-		ebitenutil.DrawRect(screen, float64(v.X*gridSize), float64(v.Y*gridSize), gridSize, gridSize, color.RGBA{0x80, 0xa0, 0xc0, 0xff})
+		vector.DrawFilledRect(screen, float32(v.X*gridSize), float32(v.Y*gridSize), gridSize, gridSize, color.RGBA{0x80, 0xa0, 0xc0, 0xff}, false)
 	}
-	ebitenutil.DrawRect(screen, float64(g.apple.X*gridSize), float64(g.apple.Y*gridSize), gridSize, gridSize, color.RGBA{0xFF, 0x00, 0x00, 0xff})
+	vector.DrawFilledRect(screen, float32(g.apple.X*gridSize), float32(g.apple.Y*gridSize), gridSize, gridSize, color.RGBA{0xFF, 0x00, 0x00, 0xff}, false)
 
 	if g.moveDirection == dirNone {
 		ebitenutil.DebugPrint(screen, fmt.Sprintf("Press up/down/left/right to start"))

@@ -15,7 +15,6 @@
 package cocoa
 
 import (
-	"reflect"
 	"unsafe"
 
 	"github.com/ebitengine/purego/objc"
@@ -50,7 +49,6 @@ var (
 	sel_UTF8String                         = objc.RegisterName("UTF8String")
 	sel_length                             = objc.RegisterName("length")
 	sel_processInfo                        = objc.RegisterName("processInfo")
-	sel_isOperatingSystemAtLeastVersion    = objc.RegisterName("isOperatingSystemAtLeastVersion:")
 	sel_frame                              = objc.RegisterName("frame")
 	sel_contentView                        = objc.RegisterName("contentView")
 	sel_setBackgroundColor                 = objc.RegisterName("setBackgroundColor:")
@@ -67,7 +65,11 @@ var (
 	sel_unsignedIntValue                   = objc.RegisterName("unsignedIntValue")
 )
 
-const NSWindowCollectionBehaviorFullScreenPrimary = 1 << 7
+const (
+	NSWindowCollectionBehaviorManaged           = 1 << 2
+	NSWindowCollectionBehaviorFullScreenPrimary = 1 << 7
+	NSWindowCollectionBehaviorFullScreenNone    = 1 << 9
+)
 
 const (
 	NSWindowStyleMaskResizable  = 1 << 3
@@ -105,16 +107,7 @@ type NSColor struct {
 }
 
 func NSColor_colorWithSRGBRedGreenBlueAlpha(red, green, blue, alpha CGFloat) (color NSColor) {
-	sig := NSMethodSignature_signatureWithObjCTypes("@@:ffff")
-	inv := NSInvocation_invocationWithMethodSignature(sig)
-	inv.SetSelector(sel_colorWithSRGBRedGreenBlueAlpha)
-	inv.SetArgumentAtIndex(unsafe.Pointer(&red), 2)
-	inv.SetArgumentAtIndex(unsafe.Pointer(&green), 3)
-	inv.SetArgumentAtIndex(unsafe.Pointer(&blue), 4)
-	inv.SetArgumentAtIndex(unsafe.Pointer(&alpha), 5)
-	inv.InvokeWithTarget(objc.ID(class_NSColor))
-	inv.GetReturnValue(unsafe.Pointer(&color))
-	return color
+	return NSColor{objc.ID(class_NSColor).Send(sel_colorWithSRGBRedGreenBlueAlpha, red, green, blue, alpha)}
 }
 
 type NSOperatingSystemVersion struct {
@@ -127,18 +120,6 @@ type NSProcessInfo struct {
 
 func NSProcessInfo_processInfo() NSProcessInfo {
 	return NSProcessInfo{objc.ID(class_NSProcessInfo).Send(sel_processInfo)}
-}
-
-func (p NSProcessInfo) IsOperatingSystemAtLeastVersion(version NSOperatingSystemVersion) bool {
-	sig := NSMethodSignature_instanceMethodSignatureForSelector(objc.ID(class_NSProcessInfo), sel_isOperatingSystemAtLeastVersion)
-	inv := NSInvocation_invocationWithMethodSignature(sig)
-	inv.SetTarget(p.ID)
-	inv.SetSelector(sel_isOperatingSystemAtLeastVersion)
-	inv.SetArgumentAtIndex(unsafe.Pointer(&version), 2)
-	inv.Invoke()
-	var ret int
-	inv.GetReturnValue(unsafe.Pointer(&ret))
-	return ret != 0
 }
 
 type NSWindow struct {
@@ -157,7 +138,7 @@ func (w NSWindow) SetBackgroundColor(color NSColor) {
 	w.Send(sel_setBackgroundColor, color.ID)
 }
 
-func (w NSWindow) IsVisibile() bool {
+func (w NSWindow) IsVisible() bool {
 	return w.Send(sel_isVisible) != 0
 }
 
@@ -200,6 +181,14 @@ func (v NSView) Frame() NSRect {
 	var rect NSRect
 	inv.GetReturnValue(unsafe.Pointer(&rect))
 	return rect
+}
+
+func (v NSView) SetLayer(layer uintptr) {
+	v.Send(objc.RegisterName("setLayer:"), layer)
+}
+
+func (v NSView) SetWantsLayer(wantsLayer bool) {
+	v.Send(objc.RegisterName("setWantsLayer:"), wantsLayer)
 }
 
 // NSInvocation is being used to call functions that can't be called directly with purego.SyscallN.
@@ -277,15 +266,7 @@ func (s NSString) InitWithUTF8String(utf8 string) NSString {
 }
 
 func (s NSString) String() string {
-	// this will be nicer with unsafe.Slice once ebitengine requires 1.17
-	// reflect.SliceHeader is used because it will force Go to copy the string
-	// into Go memory when casted to a string
-	var b []byte
-	header := (*reflect.SliceHeader)(unsafe.Pointer(&b))
-	header.Data = uintptr(s.Send(sel_UTF8String))
-	header.Len = int(s.Send(sel_length))
-	header.Cap = header.Len
-	return string(b)
+	return string(unsafe.Slice((*byte)(unsafe.Pointer(s.Send(sel_UTF8String))), s.Send(sel_length)))
 }
 
 type NSNotification struct {

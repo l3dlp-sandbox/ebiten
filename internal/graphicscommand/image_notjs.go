@@ -13,11 +13,11 @@
 // limitations under the License.
 
 //go:build !js
-// +build !js
 
 package graphicscommand
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"image"
@@ -43,7 +43,11 @@ func (i *Image) Dump(graphicsDriver graphicsdriver.Graphics, path string, blackb
 		_ = f.Close()
 	}()
 
-	if err := i.dumpTo(f, graphicsDriver, blackbg, rect); err != nil {
+	w := bufio.NewWriter(f)
+	if err := i.dumpTo(w, graphicsDriver, blackbg, rect); err != nil {
+		return "", err
+	}
+	if err := w.Flush(); err != nil {
 		return "", err
 	}
 
@@ -78,7 +82,11 @@ func DumpImages(images []*Image, graphicsDriver graphicsdriver.Graphics, dir str
 			_ = f.Close()
 		}()
 
-		if err := img.dumpTo(f, graphicsDriver, false, image.Rect(0, 0, img.width, img.height)); err != nil {
+		w := bufio.NewWriter(f)
+		if err := img.dumpTo(w, graphicsDriver, false, image.Rect(0, 0, img.width, img.height)); err != nil {
+			return "", err
+		}
+		if err := w.Flush(); err != nil {
 			return "", err
 		}
 	}

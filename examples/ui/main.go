@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -25,24 +22,22 @@ import (
 	"log"
 	"strings"
 
-	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/goregular"
-	"golang.org/x/image/font/opentype"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/examples/resources/images"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/hajimehoshi/ebiten/v2/text"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
 const (
-	lineHeight = 16
+	uiFontSize          = 12
+	lineSpacingInPixels = 16
 )
 
 var (
-	uiImage       *ebiten.Image
-	uiFont        font.Face
-	uiFontMHeight int
+	uiImage      *ebiten.Image
+	uiFaceSource *text.GoTextFaceSource
 )
 
 func init() {
@@ -52,21 +47,14 @@ func init() {
 		log.Fatal(err)
 	}
 	uiImage = ebiten.NewImageFromImage(img)
+}
 
-	tt, err := opentype.Parse(goregular.TTF)
+func init() {
+	s, err := text.NewGoTextFaceSource(bytes.NewReader(goregular.TTF))
 	if err != nil {
 		log.Fatal(err)
 	}
-	uiFont, err = opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    12,
-		DPI:     72,
-		Hinting: font.HintingFull,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	b, _, _ := uiFont.GlyphBounds('M')
-	uiFontMHeight = (b.Max.Y - b.Min.Y).Ceil()
+	uiFaceSource = s
 }
 
 type imageType int
@@ -189,11 +177,16 @@ func (b *Button) Draw(dst *ebiten.Image) {
 	}
 	drawNinePatches(dst, b.Rect, imageSrcRects[t])
 
-	bounds, _ := font.BoundString(uiFont, b.Text)
-	w := (bounds.Max.X - bounds.Min.X).Ceil()
-	x := b.Rect.Min.X + (b.Rect.Dx()-w)/2
-	y := b.Rect.Max.Y - (b.Rect.Dy()-uiFontMHeight)/2
-	text.Draw(dst, b.Text, uiFont, x, y, color.Black)
+	op := &text.DrawOptions{}
+	op.GeoM.Translate(float64(b.Rect.Min.X+b.Rect.Max.X)/2, float64(b.Rect.Min.Y+b.Rect.Max.Y)/2)
+	op.ColorScale.ScaleWithColor(color.Black)
+	op.LineSpacing = lineSpacingInPixels
+	op.PrimaryAlign = text.AlignCenter
+	op.SecondaryAlign = text.AlignCenter
+	text.Draw(dst, b.Text, &text.GoTextFace{
+		Source: uiFaceSource,
+		Size:   uiFontSize,
+	}, op)
 }
 
 func (b *Button) SetOnPressed(f func(b *Button)) {
@@ -290,13 +283,13 @@ func (v *VScrollBar) Draw(dst *ebiten.Image) {
 
 const (
 	textBoxPaddingLeft = 8
+	textBoxPaddingTop  = 4
 )
 
 type TextBox struct {
 	Rect image.Rectangle
 	Text string
 
-	contentBuf *ebiten.Image
 	vScrollBar *VScrollBar
 	offsetX    int
 	offsetY    int
@@ -326,7 +319,7 @@ func (t *TextBox) Update() {
 }
 
 func (t *TextBox) contentSize() (int, int) {
-	h := len(strings.Split(t.Text, "\n")) * lineHeight
+	h := len(strings.Split(t.Text, "\n"))*lineSpacingInPixels + textBoxPaddingTop
 	return t.Rect.Dx(), h
 }
 
@@ -341,34 +334,17 @@ func (t *TextBox) contentOffset() (int, int) {
 func (t *TextBox) Draw(dst *ebiten.Image) {
 	drawNinePatches(dst, t.Rect, imageSrcRects[imageTypeTextBox])
 
-	if t.contentBuf != nil {
-		vw, vh := t.viewSize()
-		w, h := t.contentBuf.Size()
-		if vw > w || vh > h {
-			t.contentBuf.Dispose()
-			t.contentBuf = nil
-		}
-	}
-	if t.contentBuf == nil {
-		w, h := t.viewSize()
-		t.contentBuf = ebiten.NewImage(w, h)
-	}
-
-	t.contentBuf.Clear()
-	for i, line := range strings.Split(t.Text, "\n") {
-		x := -t.offsetX + textBoxPaddingLeft
-		y := -t.offsetY + i*lineHeight + lineHeight - (lineHeight-uiFontMHeight)/2
-		if y < -lineHeight {
-			continue
-		}
-		if _, h := t.viewSize(); y >= h+lineHeight {
-			continue
-		}
-		text.Draw(t.contentBuf, line, uiFont, x, y, color.Black)
-	}
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(float64(t.Rect.Min.X), float64(t.Rect.Min.Y))
-	dst.DrawImage(t.contentBuf, op)
+	textOp := &text.DrawOptions{}
+	x := -float64(t.offsetX) + textBoxPaddingLeft
+	y := -float64(t.offsetY) + textBoxPaddingTop
+	textOp.GeoM.Translate(x, y)
+	textOp.GeoM.Translate(float64(t.Rect.Min.X), float64(t.Rect.Min.Y))
+	textOp.ColorScale.ScaleWithColor(color.Black)
+	textOp.LineSpacing = lineSpacingInPixels
+	text.Draw(dst.SubImage(t.Rect).(*ebiten.Image), t.Text, &text.GoTextFace{
+		Source: uiFaceSource,
+		Size:   uiFontSize,
+	}, textOp)
 
 	t.vScrollBar.Draw(dst)
 }
@@ -391,9 +367,11 @@ type CheckBox struct {
 }
 
 func (c *CheckBox) width() int {
-	b, _ := font.BoundString(uiFont, c.Text)
-	w := (b.Max.X - b.Min.X).Ceil()
-	return checkboxWidth + checkboxPaddingLeft + w
+	w := text.Advance(c.Text, &text.GoTextFace{
+		Source: uiFaceSource,
+		Size:   uiFontSize,
+	})
+	return checkboxWidth + checkboxPaddingLeft + int(w)
 }
 
 func (c *CheckBox) Update() {
@@ -427,8 +405,17 @@ func (c *CheckBox) Draw(dst *ebiten.Image) {
 	}
 
 	x := c.X + checkboxWidth + checkboxPaddingLeft
-	y := (c.Y + 16) - (16-uiFontMHeight)/2
-	text.Draw(dst, c.Text, uiFont, x, y, color.Black)
+	y := c.Y + checkboxHeight/2
+	op := &text.DrawOptions{}
+	op.GeoM.Translate(float64(x), float64(y))
+	op.ColorScale.ScaleWithColor(color.Black)
+	op.LineSpacing = lineSpacingInPixels
+	op.PrimaryAlign = text.AlignStart
+	op.SecondaryAlign = text.AlignCenter
+	text.Draw(dst, c.Text, &text.GoTextFace{
+		Source: uiFaceSource,
+		Size:   uiFontSize,
+	}, op)
 }
 
 func (c *CheckBox) Checked() bool {

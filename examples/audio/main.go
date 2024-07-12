@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 // This is an example to implement an audio player.
 // See examples/wav for a simpler example to play a sound file.
 
@@ -39,13 +36,14 @@ import (
 	raudio "github.com/hajimehoshi/ebiten/v2/examples/resources/audio"
 	riaudio "github.com/hajimehoshi/ebiten/v2/examples/resources/images/audio"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 const (
 	screenWidth  = 640
 	screenHeight = 480
 
-	sampleRate = 32000
+	sampleRate = 48000
 )
 
 var (
@@ -164,7 +162,7 @@ func NewPlayer(game *Game, audioContext *audio.Context, musicType musicType) (*P
 	}
 
 	const buttonPadding = 16
-	w, _ := playButtonImage.Size()
+	w := playButtonImage.Bounds().Dx()
 	player.playButtonPosition.X = (screenWidth - w*2 + buttonPadding*1) / 2
 	player.playButtonPosition.Y = screenHeight - 160
 
@@ -173,7 +171,7 @@ func NewPlayer(game *Game, audioContext *audio.Context, musicType musicType) (*P
 
 	player.audioPlayer.Play()
 	go func() {
-		s, err := wav.DecodeWithSampleRate(sampleRate, bytes.NewReader(raudio.Jab_wav))
+		s, err := wav.DecodeWithoutResampling(bytes.NewReader(raudio.Jab_wav))
 		if err != nil {
 			log.Fatal(err)
 			return
@@ -201,7 +199,7 @@ func (p *Player) update() error {
 	}
 
 	if p.audioPlayer.IsPlaying() {
-		p.current = p.audioPlayer.Current()
+		p.current = p.audioPlayer.Position()
 	}
 	if err := p.seekBarIfNeeded(); err != nil {
 		return err
@@ -228,7 +226,7 @@ func (p *Player) shouldPlaySE() bool {
 	}
 	r := image.Rectangle{
 		Min: p.alertButtonPosition,
-		Max: p.alertButtonPosition.Add(image.Pt(alertButtonImage.Size())),
+		Max: p.alertButtonPosition.Add(alertButtonImage.Bounds().Size()),
 	}
 	if image.Pt(ebiten.CursorPosition()).In(r) {
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
@@ -273,7 +271,7 @@ func (p *Player) shouldSwitchPlayStateIfNeeded() bool {
 	}
 	r := image.Rectangle{
 		Min: p.playButtonPosition,
-		Max: p.playButtonPosition.Add(image.Pt(playButtonImage.Size())),
+		Max: p.playButtonPosition.Add(playButtonImage.Bounds().Size()),
 	}
 	if image.Pt(ebiten.CursorPosition()).In(r) {
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
@@ -329,7 +327,7 @@ func (p *Player) seekBarIfNeeded() error {
 	}
 	pos := time.Duration(x-bx) * p.total / time.Duration(bw)
 	p.current = pos
-	if err := p.audioPlayer.Seek(pos); err != nil {
+	if err := p.audioPlayer.SetPosition(pos); err != nil {
 		return err
 	}
 	return nil
@@ -338,18 +336,19 @@ func (p *Player) seekBarIfNeeded() error {
 func (p *Player) draw(screen *ebiten.Image) {
 	// Draw the bar.
 	x, y, w, h := playerBarRect()
-	ebitenutil.DrawRect(screen, float64(x), float64(y), float64(w), float64(h), playerBarColor)
+	vector.DrawFilledRect(screen, float32(x), float32(y), float32(w), float32(h), playerBarColor, true)
 
 	// Draw the cursor on the bar.
 	c := p.current
-	cx := float64(x) + float64(w)*float64(p.current)/float64(p.total)
-	cy := float64(y) + float64(h)/2
-	ebitenutil.DrawCircle(screen, cx, cy, 12, playerCurrentColor)
+	cx := float32(x) + float32(w)*float32(p.current)/float32(p.total)
+	cy := float32(y) + float32(h)/2
+	vector.DrawFilledCircle(screen, cx, cy, 12, playerCurrentColor, true)
 
-	// Compose the curren time text.
+	// Compose the current time text.
 	m := (c / time.Minute) % 100
 	s := (c / time.Second) % 60
-	currentTimeStr := fmt.Sprintf("%02d:%02d", m, s)
+	ms := (c / time.Millisecond) % 1000
+	currentTimeStr := fmt.Sprintf("%02d:%02d.%03d", m, s, ms)
 
 	// Draw buttons
 	op := &ebiten.DrawImageOptions{}

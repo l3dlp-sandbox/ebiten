@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build android || ios
-// +build android ios
 
 package mobile
 
@@ -22,6 +21,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/mobile/ebitenmobileview"
 )
 
-func setGame(game ebiten.Game) {
-	ebitenmobileview.SetGame(game)
+func setGame(game ebiten.Game, options *ebiten.RunGameOptions) {
+	ebitenmobileview.SetGame(game, options)
 }

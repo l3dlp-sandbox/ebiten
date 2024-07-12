@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -63,14 +60,14 @@ func (g *Game) Update() error {
 	g.axes = map[ebiten.GamepadID][]string{}
 	g.pressedButtons = map[ebiten.GamepadID][]string{}
 	for id := range g.gamepadIDs {
-		maxAxis := ebiten.GamepadAxisCount(id)
-		for a := 0; a < maxAxis; a++ {
+		maxAxis := ebiten.GamepadAxisType(ebiten.GamepadAxisCount(id))
+		for a := ebiten.GamepadAxisType(0); a < maxAxis; a++ {
 			v := ebiten.GamepadAxisValue(id, a)
 			g.axes[id] = append(g.axes[id], fmt.Sprintf("%d:%+0.2f", a, v))
 		}
 
 		maxButton := ebiten.GamepadButton(ebiten.GamepadButtonCount(id))
-		for b := ebiten.GamepadButton(id); b < maxButton; b++ {
+		for b := ebiten.GamepadButton(0); b < maxButton; b++ {
 			if ebiten.IsGamepadButtonPressed(id, b) {
 				g.pressedButtons[id] = append(g.pressedButtons[id], strconv.Itoa(int(b)))
 			}

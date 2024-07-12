@@ -15,12 +15,15 @@
 package ebiten
 
 import (
+	"io/fs"
+	"sync"
+
 	"github.com/hajimehoshi/ebiten/v2/internal/gamepad"
 	"github.com/hajimehoshi/ebiten/v2/internal/gamepaddb"
 	"github.com/hajimehoshi/ebiten/v2/internal/ui"
 )
 
-// AppendInputChars appends "printable" runes, read from the keyboard at the time update is called, to runes,
+// AppendInputChars appends "printable" runes, read from the keyboard at the time Update is called, to runes,
 // and returns the extended buffer.
 // Giving a slice that already has enough capacity works efficiently.
 //
@@ -32,13 +35,11 @@ import (
 // AppendInputChars is concurrent-safe.
 //
 // On Android (ebitenmobile), EbitenView must be focusable to enable to handle keyboard keys.
-//
-// Keyboards don't work on iOS yet (#1090).
 func AppendInputChars(runes []rune) []rune {
-	return ui.Get().Input().AppendInputChars(runes)
+	return theInputState.appendInputChars(runes)
 }
 
-// InputChars return "printable" runes read from the keyboard at the time update is called.
+// InputChars return "printable" runes read from the keyboard at the time Update is called.
 //
 // Deprecated: as of v2.2. Use AppendInputChars instead.
 func InputChars() []rune {
@@ -47,46 +48,30 @@ func InputChars() []rune {
 
 // IsKeyPressed returns a boolean indicating whether key is pressed.
 //
-// If you want to know whether the key started being pressed in the current frame,
+// If you want to know whether the key started being pressed in the current tick,
 // use inpututil.IsKeyJustPressed
 //
-// Note that a Key represents a pysical key of US keyboard layout.
+// Note that a Key represents a physical key of US keyboard layout.
 // For example, KeyQ represents Q key on US keyboards and ' (quote) key on Dvorak keyboards.
-//
-// Known issue: On Edge browser, some keys don't work well:
-//
-//   - KeyKPEnter and KeyKPEqual are recognized as KeyEnter and KeyEqual.
-//   - KeyPrintScreen is only treated at keyup event.
 //
 // IsKeyPressed is concurrent-safe.
 //
 // On Android (ebitenmobile), EbitenView must be focusable to enable to handle keyboard keys.
-//
-// Keyboards don't work on iOS yet (#1090).
 func IsKeyPressed(key Key) bool {
-	if !key.isValid() {
-		return false
-	}
+	return theInputState.isKeyPressed(key)
+}
 
-	var keys []ui.Key
-	switch key {
-	case KeyAlt:
-		keys = []ui.Key{ui.KeyAltLeft, ui.KeyAltRight}
-	case KeyControl:
-		keys = []ui.Key{ui.KeyControlLeft, ui.KeyControlRight}
-	case KeyShift:
-		keys = []ui.Key{ui.KeyShiftLeft, ui.KeyShiftRight}
-	case KeyMeta:
-		keys = []ui.Key{ui.KeyMetaLeft, ui.KeyMetaRight}
-	default:
-		keys = []ui.Key{ui.Key(key)}
-	}
-	for _, k := range keys {
-		if ui.Get().Input().IsKeyPressed(k) {
-			return true
-		}
-	}
-	return false
+// KeyName returns a key name for the current keyboard layout.
+// For example, KeyName(KeyQ) returns 'q' for a QWERTY keyboard, and returns 'a' for an AZERTY keyboard.
+//
+// KeyName returns an empty string if 1) the key doesn't have a physical key name, 2) the platform doesn't support KeyName,
+// or 3) the main loop doesn't start yet.
+//
+// KeyName is supported by desktops and browsers.
+//
+// KeyName is concurrent-safe.
+func KeyName(key Key) string {
+	return ui.Get().KeyName(ui.Key(key))
 }
 
 // CursorPosition returns a position of a mouse cursor relative to the game screen (window). The cursor position is
@@ -98,7 +83,8 @@ func IsKeyPressed(key Key) bool {
 //
 // CursorPosition is concurrent-safe.
 func CursorPosition() (x, y int) {
-	return ui.Get().Input().CursorPosition()
+	cx, cy := theInputState.cursorPosition()
+	return int(cx), int(cy)
 }
 
 // Wheel returns x and y offsets of the mouse wheel or touchpad scroll.
@@ -106,20 +92,20 @@ func CursorPosition() (x, y int) {
 //
 // Wheel is concurrent-safe.
 func Wheel() (xoff, yoff float64) {
-	return ui.Get().Input().Wheel()
+	return theInputState.wheel()
 }
 
 // IsMouseButtonPressed returns a boolean indicating whether mouseButton is pressed.
 //
-// If you want to know whether the mouseButton started being pressed in the current frame,
+// If you want to know whether the mouseButton started being pressed in the current tick,
 // use inpututil.IsMouseButtonJustPressed
 //
 // IsMouseButtonPressed is concurrent-safe.
 func IsMouseButtonPressed(mouseButton MouseButton) bool {
-	return ui.Get().Input().IsMouseButtonPressed(mouseButton)
+	return theInputState.isMouseButtonPressed(mouseButton)
 }
 
-// GamepadID represents a gamepad's identifier.
+// GamepadID represents a gamepad identifier.
 type GamepadID = gamepad.ID
 
 // GamepadSDLID returns a string with the GUID generated in the same way as SDL.
@@ -138,7 +124,7 @@ func GamepadSDLID(id GamepadID) string {
 
 // GamepadName returns a string with the name.
 // This function may vary in how it returns descriptions for the same device across platforms.
-// for example the following drivers/platforms see a Xbox One controller as the following:
+// for example the following drivers/platforms see an Xbox One controller as the following:
 //
 //   - Windows: "Xbox Controller"
 //   - Chrome: "Xbox 360 Controller (XInput STANDARD GAMEPAD)"
@@ -189,18 +175,18 @@ func GamepadAxisNum(id GamepadID) int {
 // GamepadAxisValue returns a float value [-1.0 - 1.0] of the given gamepad (id)'s axis (axis).
 //
 // GamepadAxisValue is concurrent-safe.
-func GamepadAxisValue(id GamepadID, axis int) float64 {
+func GamepadAxisValue(id GamepadID, axis GamepadAxisType) float64 {
 	g := gamepad.Get(id)
 	if g == nil {
 		return 0
 	}
-	return g.Axis(axis)
+	return g.Axis(int(axis))
 }
 
 // GamepadAxis returns a float value [-1.0 - 1.0] of the given gamepad (id)'s axis (axis).
 //
 // Deprecated: as of v2.2. Use GamepadAxisValue instead.
-func GamepadAxis(id GamepadID, axis int) float64 {
+func GamepadAxis(id GamepadID, axis GamepadAxisType) float64 {
 	return GamepadAxisValue(id, axis)
 }
 
@@ -226,12 +212,12 @@ func GamepadButtonNum(id GamepadID) int {
 
 // IsGamepadButtonPressed reports whether the given button of the gamepad (id) is pressed or not.
 //
-// If you want to know whether the given button of gamepad (id) started being pressed in the current frame,
+// If you want to know whether the given button of gamepad (id) started being pressed in the current tick,
 // use inpututil.IsGamepadButtonJustPressed
 //
 // IsGamepadButtonPressed is concurrent-safe.
 //
-// The relationships between physical buttons and buttion IDs depend on environments.
+// The relationships between physical buttons and button IDs depend on environments.
 // There can be differences even between Chrome and Firefox.
 func IsGamepadButtonPressed(id GamepadID, button GamepadButton) bool {
 	g := gamepad.Get(id)
@@ -369,7 +355,7 @@ type TouchID = ui.TouchID
 // AppendTouchIDs appends the current touch states to touches, and returns the extended buffer.
 // Giving a slice that already has enough capacity works efficiently.
 //
-// If you want to know whether a touch started being pressed in the current frame,
+// If you want to know whether a touch started being pressed in the current tick,
 // use inpututil.JustPressedTouchIDs
 //
 // AppendTouchIDs doesn't append anything when there are no touches.
@@ -377,7 +363,7 @@ type TouchID = ui.TouchID
 //
 // AppendTouchIDs is concurrent-safe.
 func AppendTouchIDs(touches []TouchID) []TouchID {
-	return ui.Get().Input().AppendTouchIDs(touches)
+	return theInputState.appendTouchIDs(touches)
 }
 
 // TouchIDs returns the current touch states.
@@ -391,7 +377,101 @@ func TouchIDs() []TouchID {
 //
 // If the touch of the specified ID is not present, TouchPosition returns (0, 0).
 //
-// TouchPosition is cuncurrent-safe.
+// TouchPosition is concurrent-safe.
 func TouchPosition(id TouchID) (int, int) {
-	return ui.Get().Input().TouchPosition(id)
+	return theInputState.touchPosition(id)
+}
+
+var theInputState inputState
+
+type inputState struct {
+	state ui.InputState
+	m     sync.Mutex
+}
+
+func (i *inputState) update(fn func(*ui.InputState)) {
+	i.m.Lock()
+	defer i.m.Unlock()
+	fn(&i.state)
+}
+
+func (i *inputState) appendInputChars(runes []rune) []rune {
+	i.m.Lock()
+	defer i.m.Unlock()
+	return append(runes, i.state.Runes...)
+}
+
+func (i *inputState) isKeyPressed(key Key) bool {
+	if !key.isValid() {
+		return false
+	}
+
+	i.m.Lock()
+	defer i.m.Unlock()
+
+	switch key {
+	case KeyAlt:
+		return i.state.KeyPressed[ui.KeyAltLeft] || i.state.KeyPressed[ui.KeyAltRight]
+	case KeyControl:
+		return i.state.KeyPressed[ui.KeyControlLeft] || i.state.KeyPressed[ui.KeyControlRight]
+	case KeyShift:
+		return i.state.KeyPressed[ui.KeyShiftLeft] || i.state.KeyPressed[ui.KeyShiftRight]
+	case KeyMeta:
+		return i.state.KeyPressed[ui.KeyMetaLeft] || i.state.KeyPressed[ui.KeyMetaRight]
+	default:
+		return i.state.KeyPressed[key]
+	}
+}
+
+func (i *inputState) cursorPosition() (float64, float64) {
+	i.m.Lock()
+	defer i.m.Unlock()
+	return i.state.CursorX, i.state.CursorY
+}
+
+func (i *inputState) wheel() (float64, float64) {
+	i.m.Lock()
+	defer i.m.Unlock()
+	return i.state.WheelX, i.state.WheelY
+}
+
+func (i *inputState) isMouseButtonPressed(mouseButton MouseButton) bool {
+	i.m.Lock()
+	defer i.m.Unlock()
+	return i.state.MouseButtonPressed[mouseButton]
+}
+
+func (i *inputState) appendTouchIDs(touches []TouchID) []TouchID {
+	i.m.Lock()
+	defer i.m.Unlock()
+
+	for _, t := range i.state.Touches {
+		touches = append(touches, t.ID)
+	}
+	return touches
+}
+
+func (i *inputState) touchPosition(id TouchID) (int, int) {
+	i.m.Lock()
+	defer i.m.Unlock()
+
+	for _, t := range i.state.Touches {
+		if id != t.ID {
+			continue
+		}
+		return t.X, t.Y
+	}
+	return 0, 0
+}
+
+func (i *inputState) windowBeingClosed() bool {
+	i.m.Lock()
+	defer i.m.Unlock()
+	return i.state.WindowBeingClosed
+}
+
+func (i *inputState) droppedFiles() fs.FS {
+	i.m.Lock()
+	defer i.m.Unlock()
+	return i.state.DroppedFiles
 }

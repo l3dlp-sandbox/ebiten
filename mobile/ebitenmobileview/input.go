@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build android || ios
-// +build android ios
 
 package ebitenmobileview
 
@@ -28,21 +27,20 @@ type position struct {
 
 var (
 	keys    = map[ui.Key]struct{}{}
-	runes   []rune
 	touches = map[ui.TouchID]position{}
 )
 
 var (
-	touchSlice []ui.Touch
+	touchSlice []ui.TouchForInput
 )
 
-func updateInput() {
+func updateInput(runes []rune) {
 	touchSlice = touchSlice[:0]
 	for id, position := range touches {
-		touchSlice = append(touchSlice, ui.Touch{
+		touchSlice = append(touchSlice, ui.TouchForInput{
 			ID: id,
-			X:  position.x,
-			Y:  position.y,
+			X:  float64(position.x),
+			Y:  float64(position.y),
 		})
 	}
 

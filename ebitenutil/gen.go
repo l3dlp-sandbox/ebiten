@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build ignore
-// +build ignore
 
 package main
 
@@ -24,7 +23,7 @@ import (
 	"image/png"
 	"os"
 
-	"github.com/hajimehoshi/bitmapfont/v2"
+	"github.com/hajimehoshi/bitmapfont/v3"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
@@ -40,9 +39,6 @@ func run() error {
 	const (
 		charWidth  = 6
 		lineHeight = 16
-
-		dotX = 4
-		dotY = 12
 	)
 
 	var lines []string
@@ -66,10 +62,10 @@ func run() error {
 			Dst:  dst,
 			Src:  image.NewUniform(clr),
 			Face: bitmapfont.Face,
-			Dot:  fixed.P(dotX+offsetX, dotY+offsetY),
+			Dot:  fixed.Point26_6{X: fixed.I(offsetX), Y: bitmapfont.Face.Metrics().Ascent + fixed.I(offsetY)},
 		}
 		for _, line := range lines {
-			d.Dot.X = fixed.I(dotX + offsetX)
+			d.Dot.X = fixed.I(offsetX)
 			d.DrawString(line)
 			d.Dot.Y += fixed.I(lineHeight)
 		}

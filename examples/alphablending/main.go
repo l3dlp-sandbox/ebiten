@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -64,7 +61,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// Draw 100 Ebitens
 	v := g.offset()
 	op := &ebiten.DrawImageOptions{}
-	op.ColorM.Scale(1.0, 1.0, 1.0, 0.5)
+	op.ColorScale.ScaleAlpha(0.5)
 	for i := 0; i < 10*10; i++ {
 		op.GeoM.Reset()
 		x := float64(i%10)*v + 15

@@ -59,6 +59,12 @@ func (t *Type) String() string {
 		return "vec3"
 	case Vec4:
 		return "vec4"
+	case IVec2:
+		return "ivec2"
+	case IVec3:
+		return "ivec3"
+	case IVec4:
+		return "ivec4"
 	case Mat2:
 		return "mat2"
 	case Mat3:
@@ -66,7 +72,7 @@ func (t *Type) String() string {
 	case Mat4:
 		return "mat4"
 	case Array:
-		return fmt.Sprintf("%s[%d]", t.Sub[0].String(), t.Length)
+		return fmt.Sprintf("[%d]%s", t.Length, t.Sub[0].String())
 	case Struct:
 		str := "struct{"
 		sub := make([]string, 0, len(t.Sub))
@@ -81,8 +87,10 @@ func (t *Type) String() string {
 	}
 }
 
-func (t *Type) FloatCount() int {
+func (t *Type) Uint32Count() int {
 	switch t.Main {
+	case Int:
+		return 1
 	case Float:
 		return 1
 	case Vec2:
@@ -91,6 +99,12 @@ func (t *Type) FloatCount() int {
 		return 3
 	case Vec4:
 		return 4
+	case IVec2:
+		return 2
+	case IVec3:
+		return 3
+	case IVec4:
+		return 4
 	case Mat2:
 		return 4
 	case Mat3:
@@ -98,18 +112,45 @@ func (t *Type) FloatCount() int {
 	case Mat4:
 		return 16
 	case Array:
-		return t.Length * t.Sub[0].FloatCount()
+		return t.Length * t.Sub[0].Uint32Count()
 	default: // TODO: Parse a struct correctly
 		return -1
 	}
 }
 
-func (t *Type) IsVector() bool {
+func (t *Type) IsFloatVector() bool {
 	switch t.Main {
 	case Vec2, Vec3, Vec4:
 		return true
 	}
 	return false
+}
+
+func (t *Type) IsIntVector() bool {
+	switch t.Main {
+	case IVec2, IVec3, IVec4:
+		return true
+	}
+	return false
+}
+
+func (t *Type) VectorElementCount() int {
+	switch t.Main {
+	case Vec2:
+		return 2
+	case Vec3:
+		return 3
+	case Vec4:
+		return 4
+	case IVec2:
+		return 2
+	case IVec3:
+		return 3
+	case IVec4:
+		return 4
+	default:
+		return -1
+	}
 }
 
 func (t *Type) IsMatrix() bool {
@@ -130,6 +171,9 @@ const (
 	Vec2
 	Vec3
 	Vec4
+	IVec2
+	IVec3
+	IVec4
 	Mat2
 	Mat3
 	Mat4

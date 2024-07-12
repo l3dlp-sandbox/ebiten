@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build android || ios
-// +build android ios
 
 // Package ebitenmobileview offers functions for OpenGL/Metal view of mobiles.
 //
@@ -28,33 +27,62 @@ import "C"
 
 import (
 	"runtime"
-	"sync/atomic"
+	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/internal/devicescale"
-	"github.com/hajimehoshi/ebiten/v2/internal/restorable"
 	"github.com/hajimehoshi/ebiten/v2/internal/ui"
 )
+
+type SetGameNotifier interface {
+	NotifySetGame()
+}
 
 var theState state
 
 type state struct {
-	running int32
+	running         bool
+	setGameNotifier SetGameNotifier
+
+	m sync.Mutex
 }
 
 func (s *state) isRunning() bool {
-	return atomic.LoadInt32(&s.running) != 0
+	s.m.Lock()
+	defer s.m.Unlock()
+	return s.running
 }
 
 func (s *state) run() {
-	atomic.StoreInt32(&s.running, 1)
+	s.m.Lock()
+	s.running = true
+	n := s.setGameNotifier
+	s.setGameNotifier = nil
+	s.m.Unlock()
+
+	if n != nil {
+		n.NotifySetGame()
+	}
 }
 
-func SetGame(game ebiten.Game) {
+func (s *state) setSetGameNotifier(setGameNotifier SetGameNotifier) {
+	s.m.Lock()
+	r := s.running
+	if !r {
+		s.setGameNotifier = setGameNotifier
+	}
+	s.m.Unlock()
+
+	// If SetGame is already called, notify this immediately.
+	if r {
+		setGameNotifier.NotifySetGame()
+	}
+}
+
+func SetGame(game ebiten.Game, options *ebiten.RunGameOptions) {
 	if theState.isRunning() {
 		panic("ebitenmobileview: SetGame cannot be called twice or more")
 	}
-	ebiten.RunGameWithoutMainLoop(game)
+	ebiten.RunGameWithoutMainLoop(game, options)
 	theState.run()
 }
 
@@ -84,12 +112,8 @@ func Resume() error {
 	return ui.Get().SetForeground(true)
 }
 
-func OnContextLost() {
-	restorable.OnContextLost()
-}
-
 func DeviceScale() float64 {
-	return devicescale.GetAt(0, 0)
+	return ui.Get().Monitor().DeviceScaleFactor()
 }
 
 type RenderRequester interface {
@@ -99,4 +123,8 @@ type RenderRequester interface {
 
 func SetRenderRequester(renderRequester RenderRequester) {
 	ui.Get().SetRenderRequester(renderRequester)
+}
+
+func SetSetGameNotifier(setGameNotifier SetGameNotifier) {
+	theState.setSetGameNotifier(setGameNotifier)
 }

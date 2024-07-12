@@ -32,25 +32,20 @@ import (
 func init() {
 	// for these tests to pass Metal must be linked directly.
 	// it is not needed for any of the others nor for Ebitengine to work properly.
-	//go:cgo_import_dynamic _ _ "Metal.framework/Metal"
+	//go:cgo_import_dynamic _ _ "/System/Library/Frameworks/Metal.framework/Metal"
 
 	// It is also necessary for CoreGraphics to be linked
-	purego.Dlopen("/System/Library/Frameworks/CoreGraphics.framework/Versions/Current/CoreGraphics", purego.RTLD_GLOBAL)
+	_, _ = purego.Dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", purego.RTLD_LAZY|purego.RTLD_GLOBAL)
 }
 
 func Example_listDevices() {
-	device, ok := mtl.CreateSystemDefaultDevice()
-	if !ok {
-		log.Fatalln("Metal is not supported")
+	device, err := mtl.CreateSystemDefaultDevice()
+	if err != nil {
+		log.Fatal(err)
 	}
 	printJSON("preferred system default Metal device = ", device)
 
-	fmt.Println("device supports the macOS GPU family 1, version 1 feature set:", device.SupportsFeatureSet(mtl.MacOSGPUFamily1V1))
-	fmt.Println("device supports the macOS GPU family 1, version 2 feature set:", device.SupportsFeatureSet(mtl.MacOSGPUFamily1V2))
-	fmt.Println("device supports the macOS read-write texture, tier 2 feature set:", device.SupportsFeatureSet(mtl.MacOSReadWriteTextureTier2))
-	fmt.Println("device supports the macOS GPU family 1, version 3 feature set:", device.SupportsFeatureSet(mtl.MacOSGPUFamily1V3))
-	fmt.Println("device supports the macOS GPU family 1, version 4 feature set:", device.SupportsFeatureSet(mtl.MacOSGPUFamily1V4))
-	fmt.Println("device supports the macOS GPU family 2, version 1 feature set:", device.SupportsFeatureSet(mtl.MacOSGPUFamily2V1))
+	// This test is not executed by `go test` command as this doesn't have an `Output:` comment.
 
 	// Sample output:
 	// all Metal devices in the system = [
@@ -76,17 +71,11 @@ func Example_listDevices() {
 	// 	"RegistryID": 4294968322,
 	// 	"Name": "AMD Radeon R9 M370X"
 	// }
-	// device supports the macOS GPU family 1, version 1 feature set: true
-	// device supports the macOS GPU family 1, version 2 feature set: true
-	// device supports the macOS read-write texture, tier 2 feature set: true
-	// device supports the macOS GPU family 1, version 3 feature set: true
-	// device supports the macOS GPU family 1, version 4 feature set: true
-	// device supports the macOS GPU family 2, version 1 feature set: true
 }
 
 // printJSON prints label, then v as JSON encoded with indent to stdout. It panics on any error.
 // It's meant to be used by examples to print the output.
-func printJSON(label string, v interface{}) {
+func printJSON(label string, v any) {
 	fmt.Print(label)
 	w := json.NewEncoder(os.Stdout)
 	w.SetIndent("", "\t")
@@ -97,9 +86,9 @@ func printJSON(label string, v interface{}) {
 }
 
 func Example_renderTriangle() {
-	device, ok := mtl.CreateSystemDefaultDevice()
-	if !ok {
-		log.Fatalln("Metal is not supported")
+	device, err := mtl.CreateSystemDefaultDevice()
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	// Create a render pipeline state.
@@ -123,15 +112,15 @@ fragment float4 FragmentShader(Vertex in [[stage_in]]) {
 	return in.color;
 }
 `
-	lib, err := device.MakeLibrary(source, mtl.CompileOptions{})
+	lib, err := device.NewLibraryWithSource(source, mtl.CompileOptions{})
 	if err != nil {
 		log.Fatalln(err)
 	}
-	vs, err := lib.MakeFunction("VertexShader")
+	vs, err := lib.NewFunctionWithName("VertexShader")
 	if err != nil {
 		log.Fatalln(err)
 	}
-	fs, err := lib.MakeFunction("FragmentShader")
+	fs, err := lib.NewFunctionWithName("FragmentShader")
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -140,7 +129,7 @@ fragment float4 FragmentShader(Vertex in [[stage_in]]) {
 	rpld.FragmentFunction = fs
 	rpld.ColorAttachments[0].PixelFormat = mtl.PixelFormatRGBA8UNorm
 	rpld.ColorAttachments[0].WriteMask = mtl.ColorWriteMaskAll
-	rps, err := device.MakeRenderPipelineState(rpld)
+	rps, err := device.NewRenderPipelineStateWithDescriptor(rpld)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -155,7 +144,7 @@ fragment float4 FragmentShader(Vertex in [[stage_in]]) {
 		{f32.Vec4{-0.75, -0.75, 0, 1}, f32.Vec4{1, 1, 1, 1}},
 		{f32.Vec4{+0.75, -0.75, 0, 1}, f32.Vec4{0, 0, 0, 1}},
 	}
-	vertexBuffer := device.MakeBufferWithBytes(unsafe.Pointer(&vertexData[0]), unsafe.Sizeof(vertexData), mtl.ResourceStorageModeManaged)
+	vertexBuffer := device.NewBufferWithBytes(unsafe.Pointer(&vertexData[0]), unsafe.Sizeof(vertexData), mtl.ResourceStorageModeManaged)
 
 	// Create an output texture to render into.
 	td := mtl.TextureDescriptor{
@@ -165,10 +154,10 @@ fragment float4 FragmentShader(Vertex in [[stage_in]]) {
 		Height:      20,
 		StorageMode: mtl.StorageModeManaged,
 	}
-	texture := device.MakeTexture(td)
+	texture := device.NewTextureWithDescriptor(td)
 
-	cq := device.MakeCommandQueue()
-	cb := cq.MakeCommandBuffer()
+	cq := device.NewCommandQueue()
+	cb := cq.CommandBuffer()
 
 	// Encode all render commands.
 	var rpd mtl.RenderPassDescriptor
@@ -176,14 +165,14 @@ fragment float4 FragmentShader(Vertex in [[stage_in]]) {
 	rpd.ColorAttachments[0].StoreAction = mtl.StoreActionStore
 	rpd.ColorAttachments[0].ClearColor = mtl.ClearColor{Red: 0, Green: 0, Blue: 0, Alpha: 1}
 	rpd.ColorAttachments[0].Texture = texture
-	rce := cb.MakeRenderCommandEncoder(rpd)
+	rce := cb.RenderCommandEncoderWithDescriptor(rpd)
 	rce.SetRenderPipelineState(rps)
 	rce.SetVertexBuffer(vertexBuffer, 0, 0)
 	rce.DrawPrimitives(mtl.PrimitiveTypeTriangle, 0, 3)
 	rce.EndEncoding()
 
 	// Encode all blit commands.
-	bce := cb.MakeBlitCommandEncoder()
+	bce := cb.BlitCommandEncoder()
 	bce.Synchronize(texture)
 	bce.EndEncoding()
 

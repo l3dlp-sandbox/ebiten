@@ -16,6 +16,7 @@ package metal
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/hajimehoshi/ebiten/v2/internal/graphicsdriver"
 	"github.com/hajimehoshi/ebiten/v2/internal/graphicsdriver/metal/mtl"
@@ -23,19 +24,53 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/internal/shaderir/msl"
 )
 
+type precompiledLibraries struct {
+	binaries map[shaderir.SourceHash][]byte
+	m        sync.Mutex
+}
+
+func (c *precompiledLibraries) put(hash shaderir.SourceHash, bin []byte) {
+	c.m.Lock()
+	defer c.m.Unlock()
+
+	if c.binaries == nil {
+		c.binaries = map[shaderir.SourceHash][]byte{}
+	}
+	if _, ok := c.binaries[hash]; ok {
+		panic(fmt.Sprintf("metal: the precompiled library for the hash %s is already registered", hash.String()))
+	}
+	c.binaries[hash] = bin
+}
+
+func (c *precompiledLibraries) get(hash shaderir.SourceHash) []byte {
+	c.m.Lock()
+	defer c.m.Unlock()
+
+	return c.binaries[hash]
+}
+
+var thePrecompiledLibraries precompiledLibraries
+
+func RegisterPrecompiledLibrary(source []byte, bin []byte) {
+	thePrecompiledLibraries.put(shaderir.CalcSourceHash(source), bin)
+}
+
 type shaderRpsKey struct {
-	compositeMode graphicsdriver.CompositeMode
-	stencilMode   stencilMode
-	screen        bool
+	blend       graphicsdriver.Blend
+	stencilMode stencilMode
+	screen      bool
 }
 
 type Shader struct {
 	id graphicsdriver.ShaderID
 
 	ir   *shaderir.Program
+	lib  mtl.Library
 	fs   mtl.Function
 	vs   mtl.Function
 	rpss map[shaderRpsKey]mtl.RenderPipelineState
+
+	libraryPrecompiled bool
 }
 
 func newShader(device mtl.Device, id graphicsdriver.ShaderID, program *shaderir.Program) (*Shader, error) {
@@ -60,37 +95,53 @@ func (s *Shader) Dispose() {
 	}
 	s.vs.Release()
 	s.fs.Release()
+	// Do not release s.lib if this is precompiled. This is a shared precompiled library.
+	if !s.libraryPrecompiled {
+		s.lib.Release()
+	}
 }
 
 func (s *Shader) init(device mtl.Device) error {
-	const (
-		v = "Vertex"
-		f = "Fragment"
-	)
+	var src string
+	if libBin := thePrecompiledLibraries.get(s.ir.SourceHash); len(libBin) > 0 {
+		lib, err := device.NewLibraryWithData(libBin)
+		if err != nil {
+			return err
+		}
+		s.lib = lib
+	} else {
+		src = msl.Compile(s.ir)
+		lib, err := device.NewLibraryWithSource(src, mtl.CompileOptions{})
+		if err != nil {
+			return fmt.Errorf("metal: device.MakeLibrary failed: %w, source: %s", err, src)
+		}
+		s.lib = lib
+	}
 
-	src := msl.Compile(s.ir, v, f)
-	lib, err := device.MakeLibrary(src, mtl.CompileOptions{})
+	vs, err := s.lib.NewFunctionWithName(msl.VertexName)
 	if err != nil {
-		return fmt.Errorf("metal: device.MakeLibrary failed: %v, source: %s", err, src)
+		if src != "" {
+			return fmt.Errorf("metal: lib.MakeFunction for vertex failed: %w, source: %s", err, src)
+		}
+		return fmt.Errorf("metal: lib.MakeFunction for vertex failed: %w", err)
 	}
-	vs, err := lib.MakeFunction(v)
+	fs, err := s.lib.NewFunctionWithName(msl.FragmentName)
 	if err != nil {
-		return fmt.Errorf("metal: lib.MakeFunction for vertex failed: %v, source: %s", err, src)
-	}
-	fs, err := lib.MakeFunction(f)
-	if err != nil {
-		return fmt.Errorf("metal: lib.MakeFunction for fragment failed: %v, source: %s", err, src)
+		if src != "" {
+			return fmt.Errorf("metal: lib.MakeFunction for fragment failed: %w, source: %s", err, src)
+		}
+		return fmt.Errorf("metal: lib.MakeFunction for fragment failed: %w", err)
 	}
 	s.fs = fs
 	s.vs = vs
 	return nil
 }
 
-func (s *Shader) RenderPipelineState(view *view, compositeMode graphicsdriver.CompositeMode, stencilMode stencilMode, screen bool) (mtl.RenderPipelineState, error) {
+func (s *Shader) RenderPipelineState(view *view, blend graphicsdriver.Blend, stencilMode stencilMode, screen bool) (mtl.RenderPipelineState, error) {
 	key := shaderRpsKey{
-		compositeMode: compositeMode,
-		stencilMode:   stencilMode,
-		screen:        screen,
+		blend:       blend,
+		stencilMode: stencilMode,
+		screen:      screen,
 	}
 	if rps, ok := s.rpss[key]; ok {
 		return rps, nil
@@ -112,18 +163,20 @@ func (s *Shader) RenderPipelineState(view *view, compositeMode graphicsdriver.Co
 	rpld.ColorAttachments[0].PixelFormat = pix
 	rpld.ColorAttachments[0].BlendingEnabled = true
 
-	src, dst := compositeMode.Operations()
-	rpld.ColorAttachments[0].DestinationAlphaBlendFactor = operationToBlendFactor(dst)
-	rpld.ColorAttachments[0].DestinationRGBBlendFactor = operationToBlendFactor(dst)
-	rpld.ColorAttachments[0].SourceAlphaBlendFactor = operationToBlendFactor(src)
-	rpld.ColorAttachments[0].SourceRGBBlendFactor = operationToBlendFactor(src)
-	if stencilMode == prepareStencil {
-		rpld.ColorAttachments[0].WriteMask = mtl.ColorWriteMaskNone
-	} else {
+	rpld.ColorAttachments[0].DestinationAlphaBlendFactor = blendFactorToMetalBlendFactor(blend.BlendFactorDestinationAlpha)
+	rpld.ColorAttachments[0].DestinationRGBBlendFactor = blendFactorToMetalBlendFactor(blend.BlendFactorDestinationRGB)
+	rpld.ColorAttachments[0].SourceAlphaBlendFactor = blendFactorToMetalBlendFactor(blend.BlendFactorSourceAlpha)
+	rpld.ColorAttachments[0].SourceRGBBlendFactor = blendFactorToMetalBlendFactor(blend.BlendFactorSourceRGB)
+	rpld.ColorAttachments[0].AlphaBlendOperation = blendOperationToMetalBlendOperation(blend.BlendOperationAlpha)
+	rpld.ColorAttachments[0].RGBBlendOperation = blendOperationToMetalBlendOperation(blend.BlendOperationRGB)
+
+	if stencilMode == noStencil || stencilMode == drawWithStencil {
 		rpld.ColorAttachments[0].WriteMask = mtl.ColorWriteMaskAll
+	} else {
+		rpld.ColorAttachments[0].WriteMask = mtl.ColorWriteMaskNone
 	}
 
-	rps, err := view.getMTLDevice().MakeRenderPipelineState(rpld)
+	rps, err := view.getMTLDevice().NewRenderPipelineStateWithDescriptor(rpld)
 	if err != nil {
 		return mtl.RenderPipelineState{}, err
 	}

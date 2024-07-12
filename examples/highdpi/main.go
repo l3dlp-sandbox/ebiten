@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -74,9 +71,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		return
 	}
 
-	sw, sh := screen.Size()
+	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
 
-	w, h := g.highDPIImage.Size()
+	w, h := g.highDPIImage.Bounds().Dx(), g.highDPIImage.Bounds().Dy()
 	op := &ebiten.DrawImageOptions{}
 
 	// Move the images's center to the upper left corner.
@@ -87,7 +84,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Scale the image by the device ratio so that the rendering result can be same
 	// on various (different-DPI) environments.
-	scale := ebiten.DeviceScaleFactor()
+	scale := ebiten.Monitor().DeviceScaleFactor()
 	op.GeoM.Scale(scale, scale)
 
 	// Move the image's center to the screen's center.
@@ -102,7 +99,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	// The unit of outsideWidth/Height is device-independent pixels.
 	// By multiplying them by the device scale factor, we can get a hi-DPI screen size.
-	s := ebiten.DeviceScaleFactor()
+	s := ebiten.Monitor().DeviceScaleFactor()
 	return int(float64(outsideWidth) * s), int(float64(outsideHeight) * s)
 }
 

@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 // This example is just to check if Ebitengine can draw fine checker pattern evenly.
 // If there is something wrong in the implementation, the result might include
 // uneven patterns (#459).
@@ -93,7 +90,8 @@ func (g *game) Update() error {
 }
 
 func (g *game) Draw(screen *ebiten.Image) {
-	screen.WritePixels(getDots(screen.Size()))
+	s := screen.Bounds().Size()
+	screen.WritePixels(getDots(s.X, s.Y))
 }
 
 func main() {

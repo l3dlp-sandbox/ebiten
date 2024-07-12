@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -27,19 +24,16 @@ import (
 	"math"
 	"runtime"
 
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/opentype"
-
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/examples/resources/fonts"
 	"github.com/hajimehoshi/ebiten/v2/examples/resources/images"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/hajimehoshi/ebiten/v2/text"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
 var (
-	gophersImage *ebiten.Image
-	mplusFont    font.Face
+	gophersImage    *ebiten.Image
+	mplusFaceSource *text.GoTextFaceSource
 )
 
 func init() {
@@ -51,21 +45,12 @@ func init() {
 	gophersImage = ebiten.NewImageFromImage(img)
 }
 
-func initFont() {
-	tt, err := opentype.Parse(fonts.MPlus1pRegular_ttf)
+func init() {
+	s, err := text.NewGoTextFaceSource(bytes.NewReader(fonts.MPlus1pRegular_ttf))
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	const dpi = 72
-	mplusFont, err = opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    12 * ebiten.DeviceScaleFactor(),
-		DPI:     dpi,
-		Hinting: font.HintingFull,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
+	mplusFaceSource = s
 }
 
 type Game struct {
@@ -87,20 +72,20 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	scale := ebiten.DeviceScaleFactor()
+	scale := ebiten.Monitor().DeviceScaleFactor()
 
-	w, h := gophersImage.Size()
+	w, h := gophersImage.Bounds().Dx(), gophersImage.Bounds().Dy()
 	op := &ebiten.DrawImageOptions{}
 
 	op.GeoM.Translate(-float64(w)/2, -float64(h)/2)
 	op.GeoM.Scale(scale, scale)
 	op.GeoM.Rotate(float64(g.count%360) * 2 * math.Pi / 360)
-	sw, sh := screen.Size()
+	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
 	op.GeoM.Translate(float64(sw)/2, float64(sh)/2)
 	op.Filter = ebiten.FilterLinear
 	screen.DrawImage(gophersImage, op)
 
-	fw, fh := ebiten.ScreenSizeInFullscreen()
+	fw, fh := ebiten.Monitor().Size()
 	msg := "This is an example of the finest fullscreen.\n"
 	if runtime.GOOS == "js" {
 		msg += "Press F or touch the screen to enter fullscreen (again).\n"
@@ -111,18 +96,22 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	msg += fmt.Sprintf("Game's screen size: %d, %d\n", sw, sh)
 	msg += fmt.Sprintf("Device scale factor: %0.2f\n", scale)
 
-	text.Draw(screen, msg, mplusFont, int(50*scale), 50, color.White)
+	textOp := &text.DrawOptions{}
+	textOp.GeoM.Translate(50*scale, 50*scale)
+	textOp.ColorScale.ScaleWithColor(color.White)
+	textOp.LineSpacing = 12 * ebiten.Monitor().DeviceScaleFactor() * 1.5
+	text.Draw(screen, msg, &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   12 * ebiten.Monitor().DeviceScaleFactor(),
+	}, textOp)
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
-	s := ebiten.DeviceScaleFactor()
+	s := ebiten.Monitor().DeviceScaleFactor()
 	return int(float64(outsideWidth) * s), int(float64(outsideHeight) * s)
 }
 
 func main() {
-	// Call initFont here instead of init funcs since ebiten.DeviceScaleFactor is not available in init.
-	initFont()
-
 	ebiten.SetFullscreen(true)
 	ebiten.SetWindowTitle("Fullscreen (Ebitengine Demo)")
 	if err := ebiten.RunGame(&Game{}); err != nil {

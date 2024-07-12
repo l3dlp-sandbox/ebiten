@@ -12,50 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"image/color"
 	"log"
 	"math"
-
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/opentype"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/examples/resources/fonts"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/hajimehoshi/ebiten/v2/text"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
+)
+
+const (
+	arcadeFontSize = 8
 )
 
 var (
-	arcadeFont font.Face
+	arcadeFaceSource *text.GoTextFaceSource
 )
 
 func init() {
-	tt, err := opentype.Parse(fonts.PressStart2P_ttf)
+	s, err := text.NewGoTextFaceSource(bytes.NewReader(fonts.PressStart2P_ttf))
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	const (
-		arcadeFontSize = 8
-		dpi            = 72
-	)
-	arcadeFont, err = opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    arcadeFontSize,
-		DPI:     dpi,
-		Hinting: font.HintingFull,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
+	arcadeFaceSource = s
 }
 
 const (
@@ -116,7 +104,7 @@ func init() {
 		for i := range keys {
 			freq := baseFreq * math.Exp2(float64(i-1)/12.0)
 
-			// Clculate the wave data for the freq.
+			// Calculate the wave data for the freq.
 			length := 4 * sampleRate * baseFreq / int(freq)
 			l := make([]int16, length)
 			r := make([]int16, length)
@@ -149,8 +137,15 @@ func init() {
 	for i, k := range whiteKeys {
 		x := i*keyWidth + 36
 		height := 112
-		ebitenutil.DrawRect(pianoImage, float64(x), float64(y), float64(keyWidth-1), float64(height), color.White)
-		text.Draw(pianoImage, k, arcadeFont, x+8, y+height-8, color.Black)
+		vector.DrawFilledRect(pianoImage, float32(x), float32(y), float32(keyWidth-1), float32(height), color.White, false)
+		op := &text.DrawOptions{}
+		op.GeoM.Translate(float64(x+keyWidth/2), float64(y+height-12))
+		op.ColorScale.ScaleWithColor(color.Black)
+		op.PrimaryAlign = text.AlignCenter
+		text.Draw(pianoImage, k, &text.GoTextFace{
+			Source: arcadeFaceSource,
+			Size:   arcadeFontSize,
+		}, op)
 	}
 
 	blackKeys := []string{"Q", "W", "", "R", "T", "", "U", "I", "O"}
@@ -160,8 +155,15 @@ func init() {
 		}
 		x := i*keyWidth + 24
 		height := 64
-		ebitenutil.DrawRect(pianoImage, float64(x), float64(y), float64(keyWidth-1), float64(height), color.Black)
-		text.Draw(pianoImage, k, arcadeFont, x+8, y+height-8, color.White)
+		vector.DrawFilledRect(pianoImage, float32(x), float32(y), float32(keyWidth-1), float32(height), color.Black, false)
+		op := &text.DrawOptions{}
+		op.GeoM.Translate(float64(x+keyWidth/2), float64(y+height-12))
+		op.ColorScale.ScaleWithColor(color.White)
+		op.PrimaryAlign = text.AlignCenter
+		text.Draw(pianoImage, k, &text.GoTextFace{
+			Source: arcadeFaceSource,
+			Size:   arcadeFontSize,
+		}, op)
 	}
 }
 

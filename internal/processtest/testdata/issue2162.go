@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build ignore
-// +build ignore
 
 package main
 
@@ -23,13 +22,13 @@ func init() {
 	s, err := ebiten.NewShader([]byte(`
 package main
 
-func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	return vec4(1)
 }`))
 	if err != nil {
 		panic(err)
 	}
-	s.Dispose()
+	s.Deallocate()
 }
 
 type Game struct {

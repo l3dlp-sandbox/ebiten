@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build ignore
-// +build ignore
 
 package main
 
@@ -38,7 +37,7 @@ func (g *Game) Update() error {
 
 var Color vec4
 
-func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	return Color
 }`))
 		if err != nil {
@@ -48,8 +47,8 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
 		g.dst = ebiten.NewImage(w, h)
 
 		op := &ebiten.DrawRectShaderOptions{}
-		op.CompositeMode = ebiten.CompositeModeCopy
-		op.Uniforms = map[string]interface{}{
+		op.Blend = ebiten.BlendCopy
+		op.Uniforms = map[string]any{
 			"Color": []float32{1, 1, 1, 1},
 		}
 		g.dst.DrawRectShader(w, h, s, op)
@@ -57,10 +56,10 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
 			return fmt.Errorf("phase: %d, got: %v, want: %v", g.phase, got, want)
 		}
 
-		// Dispose the shader. When a new shader is created in the next phase, the underlying shader ID might be reused.
+		// Deallocate the shader. When a new shader is created in the next phase, the underlying shader ID might be reused.
 		// This test checks that the new shader works in this situation.
-		// The actual disposal will happen after this frame and before the next frame in the current implmentation.
-		s.Dispose()
+		// The actual disposal will happen after this frame and before the next frame in the current implementation.
+		s.Deallocate()
 
 		g.phase++
 
@@ -70,7 +69,7 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
 var Dummy float
 var A, B, G, R float
 
-func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
 	return vec4(R, G, B, A)
 }`))
 		if err != nil {
@@ -78,8 +77,8 @@ func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
 		}
 
 		op := &ebiten.DrawRectShaderOptions{}
-		op.CompositeMode = ebiten.CompositeModeCopy
-		op.Uniforms = map[string]interface{}{
+		op.Blend = ebiten.BlendCopy
+		op.Uniforms = map[string]any{
 			"Dummy": float32(0),
 			"R":     float32(0.5),
 			"G":     float32(1),

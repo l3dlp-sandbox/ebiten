@@ -13,16 +13,31 @@
 // limitations under the License.
 
 //go:build android || ios
-// +build android ios
 
 package opengl
 
 import (
-	"golang.org/x/mobile/gl"
-
-	"github.com/hajimehoshi/ebiten/v2/internal/graphicsdriver/opengl/gles"
+	"github.com/hajimehoshi/ebiten/v2/internal/graphicsdriver"
+	"github.com/hajimehoshi/ebiten/v2/internal/graphicsdriver/opengl/gl"
 )
 
-func (g *Graphics) SetGomobileGLContext(context gl.Context) {
-	g.context.ctx = gles.NewGomobileContext(context)
+type graphicsPlatform struct {
+}
+
+// NewGraphics creates an implementation of graphicsdriver.Graphics for OpenGL.
+// The returned graphics value is nil iff the error is not nil.
+func NewGraphics() (graphicsdriver.Graphics, error) {
+	ctx, err := gl.NewDefaultContext()
+	if err != nil {
+		return nil, err
+	}
+	return newGraphics(ctx), nil
+}
+
+func (g *Graphics) makeContextCurrent() error {
+	return nil
+}
+
+func (g *Graphics) swapBuffers() error {
+	return nil
 }

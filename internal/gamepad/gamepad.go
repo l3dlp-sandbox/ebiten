@@ -99,7 +99,7 @@ func (g *gamepads) update() error {
 	}
 
 	// A gamepad can be detected even though there are not. Apparently, some special devices are
-	// recognized as gamepads by OSes. In this case, the number of the 'buttons' can exceeds the
+	// recognized as gamepads by OSes. In this case, the number of the 'buttons' can exceed the
 	// maximum. Skip such devices as a tentative solution (#1173, #2039).
 	g.remove(func(gamepad *Gamepad) bool {
 		return gamepad.ButtonCount() > ButtonCount
@@ -173,7 +173,7 @@ func (g *gamepads) setNativeWindow(nativeWindow uintptr) {
 	g.m.Lock()
 	defer g.m.Unlock()
 
-	var n interface{} = g.native
+	var n any = g.native
 	if n, ok := n.(interface{ setNativeWindow(uintptr) }); ok {
 		n.setNativeWindow(nativeWindow)
 	}
@@ -187,14 +187,63 @@ type Gamepad struct {
 	native nativeGamepad
 }
 
+type mappingInput interface {
+	Pressed() bool
+	Value() float64 // Normalized to range: 0..1.
+}
+
+type axisMappingInput struct {
+	g    nativeGamepad
+	axis int
+}
+
+func (a axisMappingInput) Pressed() bool {
+	return a.g.axisValue(a.axis) > gamepaddb.ButtonPressedThreshold
+}
+
+func (a axisMappingInput) Value() float64 {
+	return a.g.axisValue(a.axis)*0.5 + 0.5
+}
+
+type buttonMappingInput struct {
+	g      nativeGamepad
+	button int
+}
+
+func (b buttonMappingInput) Pressed() bool {
+	return b.g.isButtonPressed(b.button)
+}
+
+func (b buttonMappingInput) Value() float64 {
+	return b.g.buttonValue(b.button)
+}
+
+type hatMappingInput struct {
+	g         nativeGamepad
+	hat       int
+	direction int
+}
+
+func (h hatMappingInput) Pressed() bool {
+	return h.g.hatState(h.hat)&h.direction != 0
+}
+
+func (h hatMappingInput) Value() float64 {
+	if h.Pressed() {
+		return 1
+	}
+	return 0
+}
+
 type nativeGamepad interface {
 	update(gamepads *gamepads) error
 	hasOwnStandardLayoutMapping() bool
-	isStandardAxisAvailableInOwnMapping(axis gamepaddb.StandardAxis) bool
-	isStandardButtonAvailableInOwnMapping(button gamepaddb.StandardButton) bool
+	standardAxisInOwnMapping(axis gamepaddb.StandardAxis) mappingInput
+	standardButtonInOwnMapping(button gamepaddb.StandardButton) mappingInput
 	axisCount() int
 	buttonCount() int
 	hatCount() int
+	isAxisReady(axis int) bool
 	axisValue(axis int) float64
 	buttonValue(button int) float64
 	isButtonPressed(button int) bool
@@ -248,6 +297,14 @@ func (g *Gamepad) HatCount() int {
 	return g.native.hatCount()
 }
 
+// IsAxisReady is concurrent-safe.
+func (g *Gamepad) IsAxisReady(axis int) bool {
+	g.m.Lock()
+	defer g.m.Unlock()
+
+	return g.native.isAxisReady(axis)
+}
+
 // Axis is concurrent-safe.
 func (g *Gamepad) Axis(axis int) float64 {
 	g.m.Lock()
@@ -284,14 +341,14 @@ func (g *Gamepad) IsStandardLayoutAvailable() bool {
 }
 
 // IsStandardAxisAvailable is concurrent safe.
-func (g *Gamepad) IsStandardAxisAvailable(button gamepaddb.StandardAxis) bool {
+func (g *Gamepad) IsStandardAxisAvailable(axis gamepaddb.StandardAxis) bool {
 	g.m.Lock()
 	defer g.m.Unlock()
 
 	if gamepaddb.HasStandardLayoutMapping(g.sdlID) {
-		return gamepaddb.HasStandardAxis(g.sdlID, button)
+		return gamepaddb.HasStandardAxis(g.sdlID, axis)
 	}
-	return g.native.isStandardAxisAvailableInOwnMapping(button)
+	return g.native.standardAxisInOwnMapping(axis) != nil
 }
 
 // IsStandardButtonAvailable is concurrent safe.
@@ -302,16 +359,21 @@ func (g *Gamepad) IsStandardButtonAvailable(button gamepaddb.StandardButton) boo
 	if gamepaddb.HasStandardLayoutMapping(g.sdlID) {
 		return gamepaddb.HasStandardButton(g.sdlID, button)
 	}
-	return g.native.isStandardButtonAvailableInOwnMapping(button)
+	return g.native.standardButtonInOwnMapping(button) != nil
 }
 
 // StandardAxisValue is concurrent-safe.
 func (g *Gamepad) StandardAxisValue(axis gamepaddb.StandardAxis) float64 {
 	if gamepaddb.HasStandardLayoutMapping(g.sdlID) {
-		return gamepaddb.AxisValue(g.sdlID, axis, g)
+		// StandardAxisValue invokes g.Axis, g.Button, or g.Hat so this cannot be locked.
+		return gamepaddb.StandardAxisValue(g.sdlID, axis, g)
 	}
-	if g.native.hasOwnStandardLayoutMapping() {
-		return g.native.axisValue(int(axis))
+
+	g.m.Lock()
+	defer g.m.Unlock()
+
+	if m := g.native.standardAxisInOwnMapping(axis); m != nil {
+		return m.Value()*2 - 1
 	}
 	return 0
 }
@@ -319,10 +381,15 @@ func (g *Gamepad) StandardAxisValue(axis gamepaddb.StandardAxis) float64 {
 // StandardButtonValue is concurrent-safe.
 func (g *Gamepad) StandardButtonValue(button gamepaddb.StandardButton) float64 {
 	if gamepaddb.HasStandardLayoutMapping(g.sdlID) {
-		return gamepaddb.ButtonValue(g.sdlID, button, g)
+		// StandardButtonValue invokes g.Axis, g.Button, or g.Hat so this cannot be locked.
+		return gamepaddb.StandardButtonValue(g.sdlID, button, g)
 	}
-	if g.native.hasOwnStandardLayoutMapping() {
-		return g.native.buttonValue(int(button))
+
+	g.m.Lock()
+	defer g.m.Unlock()
+
+	if m := g.native.standardButtonInOwnMapping(button); m != nil {
+		return m.Value()
 	}
 	return 0
 }
@@ -330,10 +397,15 @@ func (g *Gamepad) StandardButtonValue(button gamepaddb.StandardButton) float64 {
 // IsStandardButtonPressed is concurrent-safe.
 func (g *Gamepad) IsStandardButtonPressed(button gamepaddb.StandardButton) bool {
 	if gamepaddb.HasStandardLayoutMapping(g.sdlID) {
-		return gamepaddb.IsButtonPressed(g.sdlID, button, g)
+		// IsStandardButtonPressed invokes g.Axis, g.Button, or g.Hat so this cannot be locked.
+		return gamepaddb.IsStandardButtonPressed(g.sdlID, button, g)
 	}
-	if g.native.hasOwnStandardLayoutMapping() {
-		return g.native.isButtonPressed(int(button))
+
+	g.m.Lock()
+	defer g.m.Unlock()
+
+	if m := g.native.standardButtonInOwnMapping(button); m != nil {
+		return m.Pressed()
 	}
 	return false
 }

@@ -13,14 +13,14 @@
 // limitations under the License.
 
 //go:build ignore
-// +build ignore
+
+//kage:unit pixels
 
 package main
 
-func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
-	pos := position.xy / imageDstTextureSize()
-	origin, size := imageDstRegionOnTexture()
-	pos -= origin
-	pos /= size
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+	pos := dstPos.xy
+	pos -= imageDstOrigin()
+	pos /= imageDstSize()
 	return vec4(pos.x, pos.y, 0, 1)
 }

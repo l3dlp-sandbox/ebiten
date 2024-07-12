@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -47,13 +44,13 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	w, h := gophersImage.Size()
+	s := gophersImage.Bounds().Size()
 	op := &ebiten.DrawImageOptions{}
 
 	// Move the image's center to the screen's upper-left corner.
 	// This is a preparation for rotating. When geometry matrices are applied,
 	// the origin point is the upper-left corner.
-	op.GeoM.Translate(-float64(w)/2, -float64(h)/2)
+	op.GeoM.Translate(-float64(s.X)/2, -float64(s.Y)/2)
 
 	// Rotate the image. As a result, the anchor point of this rotate is
 	// the center of the image.

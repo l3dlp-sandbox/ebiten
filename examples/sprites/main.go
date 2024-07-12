@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -49,11 +46,11 @@ func init() {
 	}
 	origEbitenImage := ebiten.NewImageFromImage(img)
 
-	w, h := origEbitenImage.Size()
-	ebitenImage = ebiten.NewImage(w, h)
+	s := origEbitenImage.Bounds().Size()
+	ebitenImage = ebiten.NewImage(s.X, s.Y)
 
 	op := &ebiten.DrawImageOptions{}
-	op.ColorM.Scale(1, 1, 1, 0.5)
+	op.ColorScale.ScaleAlpha(0.5)
 	ebitenImage.DrawImage(origEbitenImage, op)
 }
 
@@ -121,7 +118,7 @@ func (g *Game) init() {
 	g.sprites.sprites = make([]*Sprite, MaxSprites)
 	g.sprites.num = 500
 	for i := range g.sprites.sprites {
-		w, h := ebitenImage.Size()
+		w, h := ebitenImage.Bounds().Dx(), ebitenImage.Bounds().Dy()
 		x, y := rand.Intn(screenWidth-w), rand.Intn(screenHeight-h)
 		vx, vy := 2*rand.Intn(2)-1, 2*rand.Intn(2)-1
 		a := rand.Intn(maxAngle)
@@ -190,7 +187,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// some conditions e.g. all the rendering sources and targets are same.
 	// For more detail, see:
 	// https://pkg.go.dev/github.com/hajimehoshi/ebiten/v2#Image.DrawImage
-	w, h := ebitenImage.Size()
+	w, h := ebitenImage.Bounds().Dx(), ebitenImage.Bounds().Dy()
 	for i := 0; i < g.sprites.num; i++ {
 		s := g.sprites.sprites[i]
 		g.op.GeoM.Reset()

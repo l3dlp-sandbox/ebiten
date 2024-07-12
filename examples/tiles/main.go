@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -60,7 +57,7 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	w, _ := tilesImage.Size()
+	w := tilesImage.Bounds().Dx()
 	tileXCount := w / tileSize
 
 	// Draw each tile with each DrawImage call.

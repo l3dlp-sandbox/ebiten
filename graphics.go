@@ -15,92 +15,52 @@
 package ebiten
 
 import (
-	"github.com/hajimehoshi/ebiten/v2/internal/graphicsdriver"
+	"github.com/hajimehoshi/ebiten/v2/internal/builtinshader"
 	"github.com/hajimehoshi/ebiten/v2/internal/ui"
 )
 
-// Filter represents the type of texture filter to be used when an image is maginified or minified.
+// Filter represents the type of texture filter to be used when an image is magnified or minified.
 type Filter int
 
 const (
 	// FilterNearest represents nearest (crisp-edged) filter
-	FilterNearest Filter = Filter(graphicsdriver.FilterNearest)
+	FilterNearest Filter = Filter(builtinshader.FilterNearest)
 
 	// FilterLinear represents linear filter
-	FilterLinear Filter = Filter(graphicsdriver.FilterLinear)
+	FilterLinear Filter = Filter(builtinshader.FilterLinear)
 )
 
-// CompositeMode represents Porter-Duff composition mode.
-type CompositeMode int
-
-// This name convention follows CSS compositing: https://drafts.fxtf.org/compositing-2/.
-//
-// In the comments,
-// c_src, c_dst and c_out represent alpha-premultiplied RGB values of source, destination and output respectively. α_src and α_dst represent alpha values of source and destination respectively.
-const (
-	// Regular alpha blending
-	// c_out = c_src + c_dst × (1 - α_src)
-	CompositeModeSourceOver CompositeMode = CompositeMode(graphicsdriver.CompositeModeSourceOver)
-
-	// c_out = 0
-	CompositeModeClear CompositeMode = CompositeMode(graphicsdriver.CompositeModeClear)
-
-	// c_out = c_src
-	CompositeModeCopy CompositeMode = CompositeMode(graphicsdriver.CompositeModeCopy)
-
-	// c_out = c_dst
-	CompositeModeDestination CompositeMode = CompositeMode(graphicsdriver.CompositeModeDestination)
-
-	// c_out = c_src × (1 - α_dst) + c_dst
-	CompositeModeDestinationOver CompositeMode = CompositeMode(graphicsdriver.CompositeModeDestinationOver)
-
-	// c_out = c_src × α_dst
-	CompositeModeSourceIn CompositeMode = CompositeMode(graphicsdriver.CompositeModeSourceIn)
-
-	// c_out = c_dst × α_src
-	CompositeModeDestinationIn CompositeMode = CompositeMode(graphicsdriver.CompositeModeDestinationIn)
-
-	// c_out = c_src × (1 - α_dst)
-	CompositeModeSourceOut CompositeMode = CompositeMode(graphicsdriver.CompositeModeSourceOut)
-
-	// c_out = c_dst × (1 - α_src)
-	CompositeModeDestinationOut CompositeMode = CompositeMode(graphicsdriver.CompositeModeDestinationOut)
-
-	// c_out = c_src × α_dst + c_dst × (1 - α_src)
-	CompositeModeSourceAtop CompositeMode = CompositeMode(graphicsdriver.CompositeModeSourceAtop)
-
-	// c_out = c_src × (1 - α_dst) + c_dst × α_src
-	CompositeModeDestinationAtop CompositeMode = CompositeMode(graphicsdriver.CompositeModeDestinationAtop)
-
-	// c_out = c_src × (1 - α_dst) + c_dst × (1 - α_src)
-	CompositeModeXor CompositeMode = CompositeMode(graphicsdriver.CompositeModeXor)
-
-	// Sum of source and destination (a.k.a. 'plus' or 'additive')
-	// c_out = c_src + c_dst
-	CompositeModeLighter CompositeMode = CompositeMode(graphicsdriver.CompositeModeLighter)
-
-	// The product of source and destination (a.k.a 'multiply blend mode')
-	// c_out = c_src * c_dst
-	CompositeModeMultiply CompositeMode = CompositeMode(graphicsdriver.CompositeModeMultiply)
-)
-
-// GraphicsLibrary represets graphics libraries supported by the engine.
-type GraphicsLibrary = ui.GraphicsLibrary
+// GraphicsLibrary represents graphics libraries supported by the engine.
+type GraphicsLibrary int
 
 const (
+	// GraphicsLibraryAuto represents the automatic choose of graphics library by Ebitengine.
+	GraphicsLibraryAuto GraphicsLibrary = GraphicsLibrary(ui.GraphicsLibraryAuto)
+
 	// GraphicsLibraryUnknown represents the state at which graphics library cannot be determined,
 	// e.g. hasn't loaded yet or failed to initialize.
-	GraphicsLibraryUnknown = ui.GraphicsLibraryUnknown
+	GraphicsLibraryUnknown GraphicsLibrary = GraphicsLibrary(ui.GraphicsLibraryUnknown)
 
 	// GraphicsLibraryOpenGL represents the graphics library OpenGL.
-	GraphicsLibraryOpenGL = ui.GraphicsLibraryOpenGL
+	GraphicsLibraryOpenGL GraphicsLibrary = GraphicsLibrary(ui.GraphicsLibraryOpenGL)
 
 	// GraphicsLibraryDirectX represents the graphics library Microsoft DirectX.
-	GraphicsLibraryDirectX = ui.GraphicsLibraryDirectX
+	GraphicsLibraryDirectX GraphicsLibrary = GraphicsLibrary(ui.GraphicsLibraryDirectX)
 
 	// GraphicsLibraryMetal represents the graphics library Apple's Metal.
-	GraphicsLibraryMetal = ui.GraphicsLibraryMetal
+	GraphicsLibraryMetal GraphicsLibrary = GraphicsLibrary(ui.GraphicsLibraryMetal)
+
+	// GraphicsLibraryMetal represents the graphics library PlayStation 5.
+	GraphicsLibraryPlayStation5 GraphicsLibrary = GraphicsLibrary(ui.GraphicsLibraryPlayStation5)
 )
+
+// String returns a string representing the graphics library.
+func (g GraphicsLibrary) String() string {
+	return ui.GraphicsLibrary(g).String()
+}
+
+// Ensures GraphicsLibraryAuto is zero (the default value for RunOptions).
+var _ [GraphicsLibraryAuto]int = [0]int{}
 
 // DebugInfo is a struct to store debug info about the graphics.
 type DebugInfo struct {
@@ -110,5 +70,5 @@ type DebugInfo struct {
 
 // ReadDebugInfo writes debug info (e.g. current graphics library) into a provided struct.
 func ReadDebugInfo(d *DebugInfo) {
-	d.GraphicsLibrary = ui.GetGraphicsLibrary()
+	d.GraphicsLibrary = GraphicsLibrary(ui.Get().GraphicsLibrary())
 }

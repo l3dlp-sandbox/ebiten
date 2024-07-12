@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build ignore
-// +build ignore
 
 package main
 
@@ -32,7 +31,7 @@ func init() {
 		h = 2
 	)
 
-	//src2 := ebiten.NewImage(1, 1)
+	// src2 := ebiten.NewImage(1, 1)
 
 	src0 := ebiten.NewImage(w, h)
 	src0.Fill(color.RGBA{0xff, 0xff, 0xff, 0xff})
@@ -66,7 +65,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	screen.DrawImage(srcInit, nil)
 
 	if g.dst == nil {
-		g.dst = ebiten.NewImage(screen.Size())
+		g.dst = ebiten.NewImage(screen.Bounds().Dx(), screen.Bounds().Dy())
 		return
 	}
 
@@ -85,14 +84,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	)
 
 	src0 := ebiten.NewImage(w, h)
-	defer src0.Dispose()
+	defer src0.Deallocate()
 	src0.Fill(color.RGBA{0xff, 0xff, 0xff, 0xff})
 	src0.Set(0, 0, color.RGBA{0, 0, 0, 0xff})
 	src0.Set(0, 1, color.RGBA{0, 0, 0, 0xff})
 	src0.Set(1, 0, color.RGBA{0, 0, 0, 0xff})
 
 	src1 := ebiten.NewImage(w, h)
-	defer src1.Dispose()
+	defer src1.Deallocate()
 	src1.DrawImage(src0, nil)
 
 	screen.Fill(color.RGBA{0xff, 0xff, 0xff, 0xff})

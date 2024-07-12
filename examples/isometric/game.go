@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -194,15 +191,14 @@ func (g *Game) renderLevel(screen *ebiten.Image) {
 	// To avoid them, render the result on an offscreen first and then scale it later.
 	if scaleLater {
 		if g.offscreen != nil {
-			w, h := g.offscreen.Size()
-			sw, sh := screen.Size()
-			if w != sw || h != sh {
-				g.offscreen.Dispose()
+			if g.offscreen.Bounds().Size() != screen.Bounds().Size() {
+				g.offscreen.Deallocate()
 				g.offscreen = nil
 			}
 		}
 		if g.offscreen == nil {
-			g.offscreen = ebiten.NewImage(screen.Size())
+			s := screen.Bounds().Size()
+			g.offscreen = ebiten.NewImage(s.X, s.Y)
 		}
 		target = g.offscreen
 		target.Clear()

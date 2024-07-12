@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -24,17 +21,21 @@ import (
 	"log"
 	"strings"
 
+	"github.com/hajimehoshi/bitmapfont/v3"
+
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/examples/keyboard/keyboard"
 	rkeyboard "github.com/hajimehoshi/ebiten/v2/examples/resources/images/keyboard"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
 
 const (
 	screenWidth  = 320
 	screenHeight = 240
 )
+
+var fontFace = text.NewGoXFace(bitmapfont.Face)
 
 var keyboardImage *ebiten.Image
 
@@ -65,7 +66,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// Draw the base (grayed) keyboard image.
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(offsetX, offsetY)
-	op.ColorM.Scale(0.5, 0.5, 0.5, 1)
+	op.ColorScale.Scale(0.5, 0.5, 0.5, 1)
 	screen.DrawImage(keyboardImage, op)
 
 	// Draw the highlighted keys.
@@ -81,11 +82,19 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		screen.DrawImage(keyboardImage.SubImage(r).(*ebiten.Image), op)
 	}
 
-	keyStrs := []string{}
+	var keyStrs []string
+	var keyNames []string
 	for _, k := range g.keys {
 		keyStrs = append(keyStrs, k.String())
+		if name := ebiten.KeyName(k); name != "" {
+			keyNames = append(keyNames, name)
+		}
 	}
-	ebitenutil.DebugPrint(screen, strings.Join(keyStrs, ", "))
+
+	// Use bitmapfont.Face instead of ebitenutil.DebugPrint, since some key names might not be printed with DebugPrint.
+	textOp := &text.DrawOptions{}
+	textOp.LineSpacing = fontFace.Metrics().HLineGap + fontFace.Metrics().HAscent + fontFace.Metrics().HDescent
+	text.Draw(screen, strings.Join(keyStrs, ", ")+"\n"+strings.Join(keyNames, ", "), fontFace, textOp)
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {

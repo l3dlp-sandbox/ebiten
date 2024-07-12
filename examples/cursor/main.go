@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -24,6 +21,8 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 const (
@@ -34,23 +33,40 @@ const (
 type Game struct {
 	grids      map[image.Rectangle]ebiten.CursorShapeType
 	gridColors map[image.Rectangle]color.Color
+	cursor     ebiten.CursorShapeType
 }
 
 func (g *Game) Update() error {
 	pt := image.Pt(ebiten.CursorPosition())
+	cursor := ebiten.CursorShapeDefault
 	for r, c := range g.grids {
 		if pt.In(r) {
-			ebiten.SetCursorShape(c)
-			return nil
+			cursor = c
+			break
 		}
 	}
-	ebiten.SetCursorShape(ebiten.CursorShapeDefault)
+
+	// Call SetCursorShape only when this is changed to test Ebitengine remembers the current cursor correctly even when it is hidden.
+	if g.cursor != cursor {
+		ebiten.SetCursorShape(cursor)
+		g.cursor = cursor
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyC) {
+		switch ebiten.CursorMode() {
+		case ebiten.CursorModeVisible:
+			ebiten.SetCursorMode(ebiten.CursorModeHidden)
+		case ebiten.CursorModeHidden:
+			ebiten.SetCursorMode(ebiten.CursorModeVisible)
+		}
+	}
+
 	return nil
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	for r, c := range g.gridColors {
-		ebitenutil.DrawRect(screen, float64(r.Min.X), float64(r.Min.Y), float64(r.Dx()), float64(r.Dy()), c)
+		vector.DrawFilledRect(screen, float32(r.Min.X), float32(r.Min.Y), float32(r.Dx()), float32(r.Dy()), c, false)
 	}
 
 	switch ebiten.CursorShape() {
@@ -66,6 +82,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		ebitenutil.DebugPrint(screen, "CursorShape: EW Resize")
 	case ebiten.CursorShapeNSResize:
 		ebitenutil.DebugPrint(screen, "CursorShape: NS Resize")
+	case ebiten.CursorShapeNESWResize:
+		ebitenutil.DebugPrint(screen, "CursorShape: NESW Resize")
+	case ebiten.CursorShapeNWSEResize:
+		ebitenutil.DebugPrint(screen, "CursorShape: NWSE Resize")
+	case ebiten.CursorShapeMove:
+		ebitenutil.DebugPrint(screen, "CursorShape: Move")
+	case ebiten.CursorShapeNotAllowed:
+		ebitenutil.DebugPrint(screen, "CursorShape: Not Allowed")
 	}
 }
 
@@ -79,18 +103,25 @@ func main() {
 			image.Rect(100, 100, 200, 200): ebiten.CursorShapeDefault,
 			image.Rect(200, 100, 300, 200): ebiten.CursorShapeText,
 			image.Rect(300, 100, 400, 200): ebiten.CursorShapeCrosshair,
-			image.Rect(100, 200, 200, 300): ebiten.CursorShapePointer,
-			image.Rect(200, 200, 300, 300): ebiten.CursorShapeEWResize,
-			image.Rect(300, 200, 400, 300): ebiten.CursorShapeNSResize,
+			image.Rect(400, 100, 500, 200): ebiten.CursorShapePointer,
+			image.Rect(100, 200, 200, 300): ebiten.CursorShapeEWResize,
+			image.Rect(200, 200, 300, 300): ebiten.CursorShapeNSResize,
+			image.Rect(300, 200, 400, 300): ebiten.CursorShapeNESWResize,
+			image.Rect(400, 200, 500, 300): ebiten.CursorShapeNWSEResize,
+			image.Rect(100, 300, 200, 400): ebiten.CursorShapeMove,
+			image.Rect(200, 300, 300, 400): ebiten.CursorShapeNotAllowed,
 		},
 		gridColors: map[image.Rectangle]color.Color{},
 	}
 	for rect, c := range g.grids {
 		clr := color.RGBA{0x40, 0x40, 0x40, 0xff}
-		if c%2 == 0 {
+		switch c % 3 {
+		case 0:
 			clr.R = 0x80
-		} else {
+		case 1:
 			clr.G = 0x80
+		case 2:
+			clr.B = 0x80
 		}
 		g.gridColors[rect] = clr
 	}

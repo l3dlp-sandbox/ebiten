@@ -13,29 +13,28 @@
 // limitations under the License.
 
 //go:build ignore
-// +build ignore
+
+//kage:unit pixels
 
 package main
 
 var Time float
 var Cursor vec2
-var ScreenSize vec2
 
-func Fragment(position vec4, texCoord vec2, color vec4) vec4 {
-	border := ScreenSize.y*0.6 + 4*cos(Time*3+texCoord.y*200)
-	if position.y < border {
-		return imageSrc2UnsafeAt(texCoord)
+func Fragment(dstPos vec4, srcPos vec2, color vec4) vec4 {
+	pos := dstPos.xy - imageDstOrigin()
+
+	border := imageDstSize().y*0.6 + 4*cos(Time*3+pos.y/10)
+	if pos.y < border {
+		return imageSrc2UnsafeAt(srcPos)
 	}
 
-	srcsize := imageSrcTextureSize()
-	rorigin, _ := imageSrcRegionOnTexture()
-
-	xoffset := (4 / srcsize.x) * cos(Time*3+texCoord.y*200)
-	yoffset := (20 / srcsize.y) * (1.0 + cos(Time*3+texCoord.y*50))
-	bordertex := border / srcsize.y
+	xoffset := 4 * cos(Time*3+pos.y/10)
+	yoffset := 20 * (1 + cos(Time*3+pos.y/40))
+	srcOrigin := imageSrc0Origin()
 	clr := imageSrc2At(vec2(
-		texCoord.x+xoffset,
-		-(texCoord.y+yoffset-rorigin.y)+bordertex*2+rorigin.y,
+		srcPos.x+xoffset,
+		-(srcPos.y+yoffset-srcOrigin.y)+border*2+srcOrigin.y,
 	)).rgb
 
 	overlay := vec3(0.5, 1, 1)

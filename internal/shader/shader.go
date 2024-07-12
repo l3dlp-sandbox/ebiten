@@ -15,10 +15,14 @@
 package shader
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"go/ast"
 	gconstant "go/constant"
+	"go/parser"
 	"go/token"
+	"regexp"
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2/internal/shaderir"
@@ -33,7 +37,6 @@ type variable struct {
 type constant struct {
 	name  string
 	typ   shaderir.Type
-	ctyp  shaderir.ConstType
 	value gconstant.Value
 }
 
@@ -48,6 +51,7 @@ type compileState struct {
 
 	vertexEntry   string
 	fragmentEntry string
+	unit          shaderir.Unit
 
 	ir shaderir.Program
 
@@ -180,12 +184,25 @@ func (p *ParseError) Error() string {
 	return strings.Join(p.errs, "\n")
 }
 
-func Compile(fs *token.FileSet, f *ast.File, vertexEntry, fragmentEntry string, textureNum int) (*shaderir.Program, error) {
+func Compile(src []byte, vertexEntry, fragmentEntry string, textureCount int) (*shaderir.Program, error) {
+	unit, err := ParseCompilerDirectives(src)
+	if err != nil {
+		return nil, err
+	}
+
+	fs := token.NewFileSet()
+	f, err := parser.ParseFile(fs, "", src, parser.AllErrors)
+	if err != nil {
+		return nil, err
+	}
+
 	s := &compileState{
 		fs:            fs,
 		vertexEntry:   vertexEntry,
 		fragmentEntry: fragmentEntry,
+		unit:          unit,
 	}
+	s.ir.SourceHash = shaderir.CalcSourceHash(src)
 	s.global.ir = &shaderir.Block{}
 	s.parse(f)
 
@@ -198,8 +215,41 @@ func Compile(fs *token.FileSet, f *ast.File, vertexEntry, fragmentEntry string, 
 
 	// TODO: Make a call graph and reorder the elements.
 
-	s.ir.TextureNum = textureNum
+	s.ir.TextureCount = textureCount
 	return &s.ir, nil
+}
+
+func ParseCompilerDirectives(src []byte) (shaderir.Unit, error) {
+	// TODO: Change the unit to pixels in v3 (#2645).
+	unit := shaderir.Texels
+
+	// Go's whitespace is U+0020 (SP), U+0009 (\t), U+000d (\r), and U+000A (\n).
+	// See https://go.dev/ref/spec#Tokens
+	reUnit := regexp.MustCompile(`^[ \t\r\n]*//kage:unit\s+([^ \t\r\n]+)[ \t\r\n]*$`)
+	var unitParsed bool
+
+	buf := bytes.NewBuffer(src)
+	s := bufio.NewScanner(buf)
+	for s.Scan() {
+		m := reUnit.FindStringSubmatch(s.Text())
+		if m == nil {
+			continue
+		}
+		if unitParsed {
+			return 0, fmt.Errorf("shader: at most one //kage:unit can exist in a shader")
+		}
+		switch m[1] {
+		case "pixels":
+			unit = shaderir.Pixels
+		case "texels":
+			unit = shaderir.Texels
+		default:
+			return 0, fmt.Errorf("shader: invalid value for //kage:unit: %s", m[1])
+		}
+		unitParsed = true
+	}
+
+	return unit, nil
 }
 
 func (s *compileState) addError(pos token.Pos, str string) {
@@ -208,6 +258,8 @@ func (s *compileState) addError(pos token.Pos, str string) {
 }
 
 func (cs *compileState) parse(f *ast.File) {
+	cs.ir.Unit = cs.unit
+
 	// Parse GenDecl for global variables, and then parse functions.
 	for _, d := range f.Decls {
 		if _, ok := d.(*ast.FuncDecl); !ok {
@@ -346,11 +398,22 @@ func (cs *compileState) parseDecl(b *block, fname string, d ast.Decl) ([]shaderi
 
 				stmts = append(stmts, ss...)
 				if b == &cs.global {
+					if len(inits) > 0 {
+						cs.addError(s.Pos(), "a uniform variable cannot have initial values")
+						return nil, false
+					}
+
 					// TODO: Should rhs be ignored?
 					for i, v := range vs {
 						if !strings.HasPrefix(v.name, "__") {
 							if v.name[0] < 'A' || 'Z' < v.name[0] {
 								cs.addError(s.Names[i].Pos(), fmt.Sprintf("global variables must be exposed: %s", v.name))
+							}
+						}
+						for _, name := range cs.ir.UniformNames {
+							if name == v.name {
+								cs.addError(s.Pos(), fmt.Sprintf("%s redeclared in this block", name))
+								return nil, false
 							}
 						}
 						cs.ir.UniformNames = append(cs.ir.UniformNames, v.name)
@@ -447,7 +510,7 @@ func (cs *compileState) functionReturnTypes(block *block, expr ast.Expr) ([]shad
 
 func (s *compileState) parseVariable(block *block, fname string, vs *ast.ValueSpec) ([]variable, []shaderir.Expr, []shaderir.Stmt, bool) {
 	if len(vs.Names) != len(vs.Values) && len(vs.Values) != 1 && len(vs.Values) != 0 {
-		s.addError(vs.Pos(), fmt.Sprintf("the numbers of lhs and rhs don't match"))
+		s.addError(vs.Pos(), "the numbers of lhs and rhs don't match")
 		return nil, nil, nil, false
 	}
 
@@ -492,22 +555,16 @@ func (s *compileState) parseVariable(block *block, fname string, vs *ast.ValueSp
 					ts = rts
 				}
 				if len(ts) > 1 {
-					s.addError(vs.Pos(), fmt.Sprintf("the numbers of lhs and rhs don't match"))
+					s.addError(vs.Pos(), "the numbers of lhs and rhs don't match")
 				}
 				t = ts[0]
-			}
-
-			if es[0].Type == shaderir.NumberExpr {
-				switch t.Main {
-				case shaderir.Int:
-					es[0].ConstType = shaderir.ConstTypeInt
-				case shaderir.Float:
-					es[0].ConstType = shaderir.ConstTypeFloat
+				if t.Main == shaderir.None {
+					t = toDefaultType(es[0].Const)
 				}
 			}
 
 			for i, rt := range rts {
-				if !canAssign(&es[i], &t, &rt) {
+				if !canAssign(&t, &rt, es[i].Const) {
 					s.addError(vs.Pos(), fmt.Sprintf("cannot use type %s as type %s in variable declaration", rt.String(), t.String()))
 				}
 			}
@@ -517,6 +574,7 @@ func (s *compileState) parseVariable(block *block, fname string, vs *ast.ValueSp
 
 		default:
 			// Multiple-value context
+			// See testcase/var_multiple.go for an actual case.
 
 			if i == 0 {
 				init := vs.Values[0]
@@ -535,7 +593,7 @@ func (s *compileState) parseVariable(block *block, fname string, vs *ast.ValueSp
 						inittypes = ts
 					}
 					if len(ts) != len(vs.Names) {
-						s.addError(vs.Pos(), fmt.Sprintf("the numbers of lhs and rhs don't match"))
+						s.addError(vs.Pos(), "the numbers of lhs and rhs don't match")
 						continue
 					}
 				}
@@ -543,9 +601,13 @@ func (s *compileState) parseVariable(block *block, fname string, vs *ast.ValueSp
 
 			if t.Main == shaderir.None && len(inittypes) > 0 {
 				t = inittypes[i]
+				// TODO: Is it possible to reach this?
+				if t.Main == shaderir.None {
+					t = toDefaultType(initexprs[i].Const)
+				}
 			}
 
-			if !canAssign(&initexprs[i], &t, &inittypes[i]) {
+			if !canAssign(&t, &inittypes[i], initexprs[i].Const) {
 				s.addError(vs.Pos(), fmt.Sprintf("cannot use type %s as type %s in variable declaration", inittypes[i].String(), t.String()))
 			}
 
@@ -617,11 +679,25 @@ func (s *compileState) parseConstant(block *block, fname string, vs *ast.ValueSp
 			s.addError(vs.Pos(), fmt.Sprintf("constant expression must be a number but not: %s", n))
 			return nil, false
 		}
+
+		if !t.Equal(&shaderir.Type{}) && !canAssign(&t, &ts[0], es[0].Const) {
+			s.addError(vs.Pos(), fmt.Sprintf("cannot use %v as %s value in constant declaration", es[0].Const, t.String()))
+			return nil, false
+		}
+
+		c := es[0].Const
+		switch t.Main {
+		case shaderir.Bool:
+		case shaderir.Int:
+			c = gconstant.ToInt(c)
+		case shaderir.Float:
+			c = gconstant.ToFloat(c)
+		}
+
 		cs = append(cs, constant{
 			name:  name,
 			typ:   t,
-			ctyp:  es[0].ConstType,
-			value: es[0].Const,
+			value: c,
 		})
 	}
 	return cs, true
@@ -665,7 +741,9 @@ func (cs *compileState) parseFuncParams(block *block, fname string, d *ast.FuncD
 		}
 	}
 
-	if len(out) == 1 && out[0].name == "" {
+	// If there is only one returning value, it is treated as a returning value.
+	// An array cannot be a returning value, especially for HLSL (#2923).
+	if len(out) == 1 && out[0].name == "" && out[0].typ.Main != shaderir.Array {
 		ret = out[0].typ
 		out = nil
 	}
@@ -691,12 +769,12 @@ func (cs *compileState) parseFunc(block *block, d *ast.FuncDecl) (function, bool
 
 	checkVaryings := func(vs []variable) {
 		if len(cs.ir.Varyings) != len(vs) {
-			cs.addError(d.Pos(), fmt.Sprintf("the number of vertex entry point's returning values and the number of fragment entry point's params must be the same"))
+			cs.addError(d.Pos(), "the number of vertex entry point's returning values and the number of fragment entry point's params must be the same")
 			return
 		}
 		for i, t := range cs.ir.Varyings {
 			if t.Main != vs[i].typ.Main {
-				cs.addError(d.Pos(), fmt.Sprintf("vertex entry point's returning value types and fragment entry point's param types must match"))
+				cs.addError(d.Pos(), "vertex entry point's returning value types and fragment entry point's param types must match")
 			}
 		}
 	}
@@ -720,7 +798,7 @@ func (cs *compileState) parseFunc(block *block, d *ast.FuncDecl) (function, bool
 
 			// The first out-param is treated as gl_Position in GLSL.
 			if outParams[0].typ.Main != shaderir.Vec4 {
-				cs.addError(d.Pos(), fmt.Sprintf("vertex entry point must have at least one returning vec4 value for a position"))
+				cs.addError(d.Pos(), "vertex entry point must have at least one returning vec4 value for a position")
 				return function{}, false
 			}
 
@@ -735,16 +813,16 @@ func (cs *compileState) parseFunc(block *block, d *ast.FuncDecl) (function, bool
 			cs.varyingParsed = true
 		case cs.fragmentEntry:
 			if len(inParams) == 0 {
-				cs.addError(d.Pos(), fmt.Sprintf("fragment entry point must have at least one vec4 parameter for a position"))
+				cs.addError(d.Pos(), "fragment entry point must have at least one vec4 parameter for a position")
 				return function{}, false
 			}
 			if inParams[0].typ.Main != shaderir.Vec4 {
-				cs.addError(d.Pos(), fmt.Sprintf("fragment entry point must have at least one vec4 parameter for a position"))
+				cs.addError(d.Pos(), "fragment entry point must have at least one vec4 parameter for a position")
 				return function{}, false
 			}
 
 			if len(outParams) != 0 || returnType.Main != shaderir.Vec4 {
-				cs.addError(d.Pos(), fmt.Sprintf("fragment entry point must have one returning vec4 value for a color"))
+				cs.addError(d.Pos(), "fragment entry point must have one returning vec4 value for a color")
 				return function{}, false
 			}
 

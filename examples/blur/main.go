@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -62,15 +59,15 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		for i := -3; i <= 3; i++ {
 			op := &ebiten.DrawImageOptions{}
 			op.GeoM.Translate(float64(i), 244+float64(j))
-			// This is a blur based on the CompositerModeSourceOver composition mode,
+			// This is a blur based on the source-over blend mode,
 			// which is basically (GL_ONE, GL_ONE_MINUS_SRC_ALPHA). ColorM acts
 			// on unpremultiplied colors, but all Ebitengine internal colors are
 			// premultiplied, meaning this mode is regular alpha blending,
 			// computing each destination pixel as srcPix * alpha + dstPix * (1 - alpha).
 			//
-			// This means that the final color is affected by the destination color when CompositeModeSourceOver is used.
-			// This composite mode is the default mode. See how this is calculated at the doc:
-			// https://pkg.go.dev/github.com/hajimehoshi/ebiten/v2#CompositeMode
+			// This means that the final color is affected by the destination color when BlendSourceOver is used.
+			// This blend mode is the default mode. See how this is calculated at the doc:
+			// https://pkg.go.dev/github.com/hajimehoshi/ebiten/v2#Blend
 			//
 			// So if using the same alpha every time, the end result will sure be biased towards the last layer.
 			//
@@ -81,7 +78,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			//   A_{n+1} = A_n * (1 - 1/(n+1)) + a_{n+1} * 1/(n+1)
 			// which is precisely what an alpha blend with alpha 1/(n+1) does.
 			layers++
-			op.ColorM.Scale(1, 1, 1, 1.0/float64(layers))
+			op.ColorScale.ScaleAlpha(1 / float32(layers))
 			screen.DrawImage(gophersImage, op)
 		}
 	}

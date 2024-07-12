@@ -12,88 +12,56 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build (android || ios) && !nintendosdk
-// +build android ios
-// +build !nintendosdk
+//go:build android || ios
 
 package ui
 
-type Input struct {
-	keys    map[Key]struct{}
-	runes   []rune
-	touches []Touch
-	ui      *userInterfaceImpl
+type TouchForInput struct {
+	ID TouchID
+
+	// X is in device-independent pixels.
+	X float64
+
+	// Y is in device-independent pixels.
+	Y float64
 }
 
-func (i *Input) CursorPosition() (x, y int) {
-	return 0, 0
-}
+func (u *UserInterface) updateInputStateFromOutside(keys map[Key]struct{}, runes []rune, touches []TouchForInput) {
+	u.m.Lock()
+	defer u.m.Unlock()
 
-func (i *Input) AppendTouchIDs(touchIDs []TouchID) []TouchID {
-	i.ui.m.RLock()
-	defer i.ui.m.RUnlock()
-
-	for _, t := range i.touches {
-		touchIDs = append(touchIDs, t.ID)
-	}
-	return touchIDs
-}
-
-func (i *Input) TouchPosition(id TouchID) (x, y int) {
-	i.ui.m.RLock()
-	defer i.ui.m.RUnlock()
-
-	for _, t := range i.touches {
-		if t.ID == id {
-			return i.ui.adjustPosition(t.X, t.Y)
-		}
-	}
-	return 0, 0
-}
-
-func (i *Input) AppendInputChars(runes []rune) []rune {
-	i.ui.m.Lock()
-	defer i.ui.m.Unlock()
-	return append(runes, i.runes...)
-}
-
-func (i *Input) IsKeyPressed(key Key) bool {
-	i.ui.m.RLock()
-	defer i.ui.m.RUnlock()
-
-	_, ok := i.keys[key]
-	return ok
-}
-
-func (i *Input) Wheel() (xoff, yoff float64) {
-	return 0, 0
-}
-
-func (i *Input) IsMouseButtonPressed(key MouseButton) bool {
-	return false
-}
-
-func (i *Input) update(keys map[Key]struct{}, runes []rune, touches []Touch) {
-	i.ui.m.Lock()
-	defer i.ui.m.Unlock()
-
-	if i.keys == nil {
-		i.keys = map[Key]struct{}{}
-	}
-	for k := range i.keys {
-		delete(i.keys, k)
-	}
-	for k := range keys {
-		i.keys[k] = struct{}{}
+	for k := range u.inputState.KeyPressed {
+		_, ok := keys[Key(k)]
+		u.inputState.KeyPressed[k] = ok
 	}
 
-	i.runes = i.runes[:0]
-	i.runes = append(i.runes, runes...)
+	u.inputState.Runes = append(u.inputState.Runes, runes...)
 
-	i.touches = i.touches[:0]
-	i.touches = append(i.touches, touches...)
+	u.touches = u.touches[:0]
+	for _, t := range touches {
+		u.touches = append(u.touches, t)
+	}
 }
 
-func (i *Input) resetForTick() {
-	i.runes = nil
+func (u *UserInterface) updateInputState() error {
+	u.m.Lock()
+	defer u.m.Unlock()
+
+	s := theMonitor.DeviceScaleFactor()
+
+	u.inputState.Touches = u.inputState.Touches[:0]
+	for _, t := range u.touches {
+		x, y := u.context.clientPositionToLogicalPosition(t.X, t.Y, s)
+		u.inputState.Touches = append(u.inputState.Touches, Touch{
+			ID: t.ID,
+			X:  int(x),
+			Y:  int(y),
+		})
+	}
+	return nil
+}
+
+func (u *UserInterface) KeyName(key Key) string {
+	// TODO: Implement this.
+	return ""
 }

@@ -12,41 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !android && !ios && !js && !nintendosdk && (ebitenginesinglethread || ebitensinglethread)
-// +build !android
-// +build !ios
-// +build !js
-// +build !nintendosdk
-// +build ebitenginesinglethread ebitensinglethread
+//go:build ebitenginesinglethread || ebitensinglethread
 
 package ui
 
-import (
-	"github.com/hajimehoshi/ebiten/v2/internal/graphicscommand"
-	"github.com/hajimehoshi/ebiten/v2/internal/thread"
-)
-
-func (u *userInterfaceImpl) Run(game Game) error {
-	u.context = newContext(game)
-
-	// Initialize the main thread first so the thread is available at u.run (#809).
-	u.t = thread.NewNoopThread()
-	graphicscommand.SetRenderingThread(u.t)
-
-	u.setRunning(true)
-
-	if err := u.init(); err != nil {
-		return err
-	}
-
-	if err := u.loop(); err != nil {
-		return err
-	}
-
-	u.setRunning(false)
-	return nil
-}
-
-func (u *userInterfaceImpl) runOnAnotherThreadFromMainThread(f func()) {
-	f()
-}
+const buildTagSingleThread = true

@@ -13,7 +13,6 @@
 // limitations under the License.
 
 //go:build microsoftgdk
-// +build microsoftgdk
 
 package microsoftgdk
 
@@ -64,6 +63,8 @@ func IsXbox() bool {
 
 func MonitorResolution() (int, int) {
 	switch C.XSystemGetDeviceType() {
+	case _XSystemDeviceType_Unknown, _XSystemDeviceType_Pc:
+		return 1920, 1080
 	case _XSystemDeviceType_XboxOne, _XSystemDeviceType_XboxOneS:
 		return 1920, 1080
 	case _XSystemDeviceType_XboxScarlettLockhart:
@@ -71,26 +72,44 @@ func MonitorResolution() (int, int) {
 		return 2560, 1440
 	case _XSystemDeviceType_XboxOneX, _XSystemDeviceType_XboxOneXDevkit, _XSystemDeviceType_XboxScarlettAnaconda, _XSystemDeviceType_XboxScarlettDevkit:
 		// Series X
-		return 3840, 2160
+		fallthrough
 	default:
-		return 1920, 1080
+		// Forward compatibility.
+		return 3840, 2160
 	}
 }
 
 func D3D12DLLName() string {
 	switch C.XSystemGetDeviceType() {
+	case _XSystemDeviceType_Unknown, _XSystemDeviceType_Pc:
+		return ""
 	case _XSystemDeviceType_XboxOne, _XSystemDeviceType_XboxOneS, _XSystemDeviceType_XboxOneX, _XSystemDeviceType_XboxOneXDevkit:
 		return "d3d12_x.dll"
 	case _XSystemDeviceType_XboxScarlettLockhart, _XSystemDeviceType_XboxScarlettAnaconda, _XSystemDeviceType_XboxScarlettDevkit:
-		return "d3d12_xs.dll"
+		fallthrough
 	default:
-		return ""
+		// Forward compatibility.
+		return "d3d12_xs.dll"
+	}
+}
+
+func D3D12SDKVersion() uint32 {
+	switch C.XSystemGetDeviceType() {
+	case _XSystemDeviceType_Unknown, _XSystemDeviceType_Pc:
+		return 0
+	case _XSystemDeviceType_XboxOne, _XSystemDeviceType_XboxOneS, _XSystemDeviceType_XboxOneX, _XSystemDeviceType_XboxOneXDevkit:
+		return (1 << 16) | 10
+	case _XSystemDeviceType_XboxScarlettLockhart, _XSystemDeviceType_XboxScarlettAnaconda, _XSystemDeviceType_XboxScarlettDevkit:
+		fallthrough
+	default:
+		// Forward compatibility.
+		return (2 << 16) | 4
 	}
 }
 
 func init() {
 	if r := C.XGameRuntimeInitialize(); uint32(r) != uint32(windows.S_OK) {
-		panic(fmt.Sprintf("microsoftgdk: XSystemGetDeviceType failed: HRESULT(%d)", r))
+		panic(fmt.Sprintf("microsoftgdk: XSystemGetDeviceType failed: HRESULT(%d)", uint32(r)))
 	}
 	if got, want := _GetACP(), uint32(_CP_UTF8); got != want {
 		panic(fmt.Sprintf("microsoftgdk: GetACP(): got %d, want %d", got, want))

@@ -12,25 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
+	"bytes"
 	"image/color"
 	"log"
 	"math"
-	"math/rand"
-	"time"
-
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/opentype"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/examples/resources/fonts"
-	"github.com/hajimehoshi/ebiten/v2/text"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 const (
@@ -42,37 +35,26 @@ const sampleText = `  The quick brown fox jumps
 over the lazy dog.`
 
 var (
-	mplusNormalFont font.Face
-	mplusBigFont    font.Face
+	mplusFaceSource *text.GoTextFaceSource
+	mplusNormalFace *text.GoTextFace
+	mplusBigFace    *text.GoTextFace
 )
 
 func init() {
-	tt, err := opentype.Parse(fonts.MPlus1pRegular_ttf)
+	s, err := text.NewGoTextFaceSource(bytes.NewReader(fonts.MPlus1pRegular_ttf))
 	if err != nil {
 		log.Fatal(err)
 	}
+	mplusFaceSource = s
 
-	const dpi = 72
-	mplusNormalFont, err = opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    24,
-		DPI:     dpi,
-		Hinting: font.HintingFull,
-	})
-	if err != nil {
-		log.Fatal(err)
+	mplusNormalFace = &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   24,
 	}
-	mplusBigFont, err = opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    32,
-		DPI:     dpi,
-		Hinting: font.HintingFull,
-	})
-	if err != nil {
-		log.Fatal(err)
+	mplusBigFace = &text.GoTextFace{
+		Source: mplusFaceSource,
+		Size:   32,
 	}
-}
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
 }
 
 type Game struct {
@@ -85,7 +67,9 @@ type Game struct {
 func (g *Game) Update() error {
 	// Initialize the glyphs for special (colorful) rendering.
 	if len(g.glyphs) == 0 {
-		g.glyphs = text.AppendGlyphs(g.glyphs, mplusNormalFont, sampleText)
+		op := &text.LayoutOptions{}
+		op.LineSpacing = mplusNormalFace.Size * 1.5
+		g.glyphs = text.AppendGlyphs(g.glyphs, sampleText, mplusNormalFace, op)
 	}
 	return nil
 }
@@ -94,56 +78,73 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	gray := color.RGBA{0x80, 0x80, 0x80, 0xff}
 
 	{
-		const x, y = 20, 40
-		b := text.BoundString(mplusNormalFont, sampleText)
-		ebitenutil.DrawRect(screen, float64(b.Min.X+x), float64(b.Min.Y+y), float64(b.Dx()), float64(b.Dy()), gray)
-		text.Draw(screen, sampleText, mplusNormalFont, x, y, color.White)
+		const x, y = 20, 20
+		w, h := text.Measure(sampleText, mplusNormalFace, mplusNormalFace.Size*1.5)
+		vector.DrawFilledRect(screen, x, y, float32(w), float32(h), gray, false)
+		op := &text.DrawOptions{}
+		op.GeoM.Translate(x, y)
+		op.LineSpacing = mplusNormalFace.Size * 1.5
+		text.Draw(screen, sampleText, mplusNormalFace, op)
 	}
 	{
-		const x, y = 20, 140
-		b := text.BoundString(mplusBigFont, sampleText)
-		ebitenutil.DrawRect(screen, float64(b.Min.X+x), float64(b.Min.Y+y), float64(b.Dx()), float64(b.Dy()), gray)
-		text.Draw(screen, sampleText, mplusBigFont, x, y, color.White)
+		const x, y = 20, 120
+		w, h := text.Measure(sampleText, mplusBigFace, mplusBigFace.Size*1.5)
+		vector.DrawFilledRect(screen, x, y, float32(w), float32(h), gray, false)
+		op := &text.DrawOptions{}
+		op.GeoM.Translate(x, y)
+		op.LineSpacing = mplusBigFace.Size * 1.5
+		text.Draw(screen, sampleText, mplusBigFace, op)
 	}
 	{
-		const x, y = 20, 240
-		op := &ebiten.DrawImageOptions{}
+		const x, y = 20, 220
+		op := &text.DrawOptions{}
 		op.GeoM.Rotate(math.Pi / 4)
 		op.GeoM.Translate(x, y)
 		op.Filter = ebiten.FilterLinear
-		text.DrawWithOptions(screen, sampleText, mplusNormalFont, op)
+		op.LineSpacing = mplusNormalFace.Size * 1.5
+		text.Draw(screen, sampleText, mplusNormalFace, op)
 	}
 	{
-		const x, y = 160, 240
-		const lineHeight = 80
-		b := text.BoundString(text.FaceWithLineHeight(mplusBigFont, lineHeight), sampleText)
-		ebitenutil.DrawRect(screen, float64(b.Min.X+x), float64(b.Min.Y+y), float64(b.Dx()), float64(b.Dy()), gray)
-		text.Draw(screen, sampleText, text.FaceWithLineHeight(mplusBigFont, lineHeight), x, y, color.White)
+		const x, y = 160, 220
+		const lineSpacingInPixels = 80
+		w, h := text.Measure(sampleText, mplusBigFace, lineSpacingInPixels)
+		vector.DrawFilledRect(screen, x, y, float32(w), float32(h), gray, false)
+		op := &text.DrawOptions{}
+		// Add the width as the text rendering region's upper-right position comes to (0, 0)
+		// when the horizontal alignment is right. The alignment is specified later (PrimaryAlign).
+		op.GeoM.Translate(x+w, y)
+		op.LineSpacing = lineSpacingInPixels
+		// The primary alignment for the left-to-right direction is a horizontal alignment, and the end means the right.
+		op.PrimaryAlign = text.AlignEnd
+		text.Draw(screen, sampleText, mplusBigFace, op)
 	}
 	{
-		const x, y = 240, 400
+		const x, y = 240, 360
 		op := &ebiten.DrawImageOptions{}
 		// g.glyphs is initialized by text.AppendGlyphs.
 		// You can customize how to render each glyph.
 		// In this example, multiple colors are used to render glyphs.
 		for i, gl := range g.glyphs {
+			if gl.Image == nil {
+				continue
+			}
 			op.GeoM.Reset()
 			op.GeoM.Translate(x, y)
 			op.GeoM.Translate(gl.X, gl.Y)
-			op.ColorM.Reset()
-			r := 1.0
+			op.ColorScale.Reset()
+			r := float32(1)
 			if i%3 == 0 {
 				r = 0.5
 			}
-			g := 1.0
+			g := float32(1)
 			if i%3 == 1 {
 				g = 0.5
 			}
-			b := 1.0
+			b := float32(1)
 			if i%3 == 2 {
 				b = 0.5
 			}
-			op.ColorM.Scale(r, g, b, 1)
+			op.ColorScale.Scale(r, g, b, 1)
 			screen.DrawImage(gl.Image, op)
 		}
 	}

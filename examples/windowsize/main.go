@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build example
-// +build example
-
 package main
 
 import (
@@ -29,6 +26,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -38,18 +36,20 @@ import (
 )
 
 var (
-	flagFullscreen     = flag.Bool("fullscreen", false, "fullscreen")
-	flagResizable      = flag.Bool("resizable", false, "make the window resizable")
-	flagWindowPosition = flag.String("windowposition", "", "window position (e.g., 100,200)")
-	flagTransparent    = flag.Bool("transparent", false, "screen transparent")
-	flagAutoAdjusting  = flag.Bool("autoadjusting", false, "make the game screen auto-adjusting")
-	flagFloating       = flag.Bool("floating", false, "make the window floating")
-	flagMaximize       = flag.Bool("maximize", false, "maximize the window")
-	flagVsync          = flag.Bool("vsync", true, "enable vsync")
-	flagAutoRestore    = flag.Bool("autorestore", false, "restore the window automatically")
-	flagInitFocused    = flag.Bool("initfocused", true, "whether the window is focused on start")
-	flagMinWindowSize  = flag.String("minwindowsize", "", "minimum window size (e.g., 100x200)")
-	flagMaxWindowSize  = flag.String("maxwindowsize", "", "maximium window size (e.g., 1920x1080)")
+	flagFullscreen          = flag.Bool("fullscreen", false, "fullscreen")
+	flagResizable           = flag.Bool("resizable", false, "make the window resizable")
+	flagWindowPosition      = flag.String("windowposition", "", "window position (e.g., 100,200)")
+	flagTransparent         = flag.Bool("transparent", false, "screen transparent")
+	flagAutoAdjusting       = flag.Bool("autoadjusting", false, "make the game screen auto-adjusting")
+	flagFloating            = flag.Bool("floating", false, "make the window floating")
+	flagMaximize            = flag.Bool("maximize", false, "maximize the window")
+	flagVsync               = flag.Bool("vsync", true, "enable vsync")
+	flagAutoRestore         = flag.Bool("autorestore", false, "restore the window automatically")
+	flagInitFocused         = flag.Bool("initfocused", true, "whether the window is focused on start")
+	flagMinWindowSize       = flag.String("minwindowsize", "", "minimum window size (e.g., 100x200)")
+	flagMaxWindowSize       = flag.String("maxwindowsize", "", "maximum window size (e.g., 1920x1080)")
+	flagGraphicsLibrary     = flag.String("graphicslibrary", "", "graphics library (e.g. opengl)")
+	flagRunnableOnUnfocused = flag.Bool("runnableonunfocused", true, "whether the app is runnable even on unfocused")
 )
 
 func init() {
@@ -93,12 +93,20 @@ func createRandomIconImage() image.Image {
 
 type game struct {
 	count       int
-	width       int
-	height      int
+	width       float64
+	height      float64
 	transparent bool
+
+	logOnce sync.Once
 }
 
 func (g *game) Layout(outsideWidth, outsideHeight int) (int, int) {
+	// As game implements the interface LayoutFer, Layout is never called and LayoutF is called instead.
+	// However, game has to implement Layout to satisfy the interface Game.
+	panic("windowsize: Layout must not be called")
+}
+
+func (g *game) LayoutF(outsideWidth, outsideHeight float64) (float64, float64) {
 	if *flagAutoAdjusting {
 		g.width, g.height = outsideWidth, outsideHeight
 		return outsideWidth, outsideHeight
@@ -108,15 +116,21 @@ func (g *game) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 func (g *game) Update() error {
+	g.logOnce.Do(func() {
+		var debug ebiten.DebugInfo
+		ebiten.ReadDebugInfo(&debug)
+		fmt.Printf("Graphics library: %s\n", debug.GraphicsLibrary)
+	})
+
 	var (
-		screenWidth  int
-		screenHeight int
+		screenWidth  float64
+		screenHeight float64
 		screenScale  float64
 	)
 	screenWidth = g.width
 	screenHeight = g.height
 	if ww, wh := ebiten.WindowSize(); ww > 0 && wh > 0 {
-		screenScale = math.Min(float64(ww)/float64(g.width), float64(wh)/float64(g.height))
+		screenScale = math.Min(float64(ww)/g.width, float64(wh)/g.height)
 	} else {
 		// ebiten.WindowSize can return (0, 0) on browsers or mobiles.
 		screenScale = 1
@@ -125,7 +139,7 @@ func (g *game) Update() error {
 	fullscreen := ebiten.IsFullscreen()
 	runnableOnUnfocused := ebiten.IsRunnableOnUnfocused()
 	cursorMode := ebiten.CursorMode()
-	fpsMode := ebiten.FPSMode()
+	vsyncEnabled := ebiten.IsVsyncEnabled()
 	tps := ebiten.TPS()
 	decorated := ebiten.IsWindowDecorated()
 	positionX, positionY := ebiten.WindowPosition()
@@ -133,6 +147,7 @@ func (g *game) Update() error {
 	floating := ebiten.IsWindowFloating()
 	resizingMode := ebiten.WindowResizingMode()
 	screenCleared := ebiten.IsScreenClearedEveryFrame()
+	mousePassthrough := ebiten.IsWindowMousePassthrough()
 
 	const d = 16
 	toUpdateWindowSize := false
@@ -206,16 +221,7 @@ func (g *game) Update() error {
 		}
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyV) {
-		switch fpsMode {
-		case ebiten.FPSModeVsyncOn:
-			fpsMode = ebiten.FPSModeVsyncOffMaximum
-		case ebiten.FPSModeVsyncOffMaximum:
-			fpsMode = ebiten.FPSModeVsyncOffMinimum
-		case ebiten.FPSModeVsyncOffMinimum:
-			fpsMode = ebiten.FPSModeVsyncOn
-			// Reset TPS
-			tps = 60
-		}
+		vsyncEnabled = !vsyncEnabled
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyT) {
 		switch tps {
@@ -262,6 +268,9 @@ func (g *game) Update() error {
 			restore = inpututil.IsKeyJustPressed(ebiten.KeyE)
 		}
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyP) {
+		mousePassthrough = !mousePassthrough
+	}
 
 	if toUpdateWindowSize {
 		g.width = screenWidth
@@ -274,8 +283,8 @@ func (g *game) Update() error {
 
 	// Set FPS mode enabled only when this is needed.
 	// This makes a bug around FPS mode initialization more explicit (#1364).
-	if fpsMode != ebiten.FPSMode() {
-		ebiten.SetFPSMode(fpsMode)
+	if vsyncEnabled != ebiten.IsVsyncEnabled() {
+		ebiten.SetVsyncEnabled(vsyncEnabled)
 	}
 	ebiten.SetTPS(tps)
 	ebiten.SetWindowDecorated(decorated)
@@ -298,14 +307,19 @@ func (g *game) Update() error {
 	if inpututil.IsKeyJustPressed(ebiten.KeyI) {
 		ebiten.SetWindowIcon([]image.Image{createRandomIconImage()})
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyJ) {
+		ebiten.SetWindowIcon(nil)
+	}
+
+	ebiten.SetWindowMousePassthrough(mousePassthrough)
 
 	g.count++
 	return nil
 }
 
 func (g *game) Draw(screen *ebiten.Image) {
-	w, h := gophersImage.Size()
-	w2, h2 := screen.Size()
+	w, h := gophersImage.Bounds().Dx(), gophersImage.Bounds().Dy()
+	w2, h2 := screen.Bounds().Dx(), screen.Bounds().Dy()
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(float64(-w+w2)/2, float64(-h+h2)/2)
 	dx := math.Cos(2*math.Pi*float64(g.count)/360) * 20
@@ -347,11 +361,13 @@ func (g *game) Draw(screen *ebiten.Image) {
 [U] Switch the runnable-on-unfocused state
 [C] Switch the cursor mode (visible, hidden, or captured)
 [I] Change the window icon (only for desktops)
-[V] Switch the FPS mode
+[J] Reset the window icon (only for desktops)
+[V] Switch the vsync
 [T] Switch TPS (ticks per second)
 [D] Switch the window decoration (only for desktops)
 [L] Switch the window floating state (only for desktops)
 [W] Switch whether to skip clearing the screen
+[P] Switch whether a mouse cursor passthroughs the window (only for desktops)
 %s
 IsFocused?: %s
 Window Position: (%d, %d)
@@ -360,7 +376,7 @@ Window size limitation: (%d, %d) - (%d, %d)
 Cursor: (%d, %d)
 TPS: Current: %0.2f / Max: %s
 FPS: %0.2f
-Device Scale Factor: %0.2f`, msgM, msgR, fg, wx, wy, ww, wh, minw, minh, maxw, maxh, cx, cy, ebiten.ActualTPS(), tpsStr, ebiten.ActualFPS(), ebiten.DeviceScaleFactor())
+Device Scale Factor: %0.2f`, msgM, msgR, fg, wx, wy, ww, wh, minw, minh, maxw, maxh, cx, cy, ebiten.ActualTPS(), tpsStr, ebiten.ActualFPS(), ebiten.Monitor().DeviceScaleFactor())
 	ebitenutil.DebugPrint(screen, msg)
 }
 
@@ -384,8 +400,8 @@ func parseWindowPosition() (int, int, bool) {
 }
 
 func main() {
-	fmt.Printf("Device scale factor: %0.2f\n", ebiten.DeviceScaleFactor())
-	w, h := ebiten.ScreenSizeInFullscreen()
+	fmt.Printf("Device scale factor: %0.2f\n", ebiten.Monitor().DeviceScaleFactor())
+	w, h := ebiten.Monitor().Size()
 	fmt.Printf("Screen size in fullscreen: %d, %d\n", w, h)
 
 	// Decode an image from the image file's byte slice.
@@ -400,7 +416,6 @@ func main() {
 	if x, y, ok := parseWindowPosition(); ok {
 		ebiten.SetWindowPosition(x, y)
 	}
-	ebiten.SetScreenTransparent(*flagTransparent)
 
 	g := &game{
 		width:  initScreenWidth,
@@ -421,15 +436,13 @@ func main() {
 		ebiten.MaximizeWindow()
 	}
 	if !*flagVsync {
-		ebiten.SetFPSMode(ebiten.FPSModeVsyncOffMaximum)
+		ebiten.SetVsyncEnabled(false)
 	}
 	if *flagAutoAdjusting {
 		ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	}
-
-	ebiten.SetInitFocused(*flagInitFocused)
-	if !*flagInitFocused {
-		ebiten.SetRunnableOnUnfocused(true)
+	if !*flagRunnableOnUnfocused {
+		ebiten.SetRunnableOnUnfocused(false)
 	}
 
 	minw, minh, maxw, maxh := -1, -1, -1, -1
@@ -447,12 +460,30 @@ func main() {
 		ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	}
 
+	op := &ebiten.RunGameOptions{}
+	switch *flagGraphicsLibrary {
+	case "":
+		op.GraphicsLibrary = ebiten.GraphicsLibraryAuto
+	case "opengl":
+		op.GraphicsLibrary = ebiten.GraphicsLibraryOpenGL
+	case "directx":
+		op.GraphicsLibrary = ebiten.GraphicsLibraryDirectX
+	case "metal":
+		op.GraphicsLibrary = ebiten.GraphicsLibraryMetal
+	default:
+		log.Fatalf("unexpected graphics library: %s", *flagGraphicsLibrary)
+	}
+	op.InitUnfocused = !*flagInitFocused
+	op.ScreenTransparent = *flagTransparent
+	op.X11ClassName = "Window-Size"
+	op.X11InstanceName = "window-size"
+
 	const title = "Window Size (Ebitengine Demo)"
 	ww := int(float64(g.width) * initScreenScale)
 	wh := int(float64(g.height) * initScreenScale)
 	ebiten.SetWindowSize(ww, wh)
 	ebiten.SetWindowTitle(title)
-	if err := ebiten.RunGame(g); err != nil {
+	if err := ebiten.RunGameWithOptions(g, op); err != nil {
 		log.Fatal(err)
 	}
 }
