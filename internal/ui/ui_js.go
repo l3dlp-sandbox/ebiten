@@ -705,14 +705,24 @@ func (u *UserInterface) setCanvasEventHandlers(v js.Value) {
 func (u *UserInterface) appendDroppedFiles(data js.Value) {
 	u.dropFileM.Lock()
 	defer u.dropFileM.Unlock()
-
 	items := data.Get("items")
-	if items.Length() <= 0 {
-		return
-	}
 
-	fs := items.Index(0).Call("webkitGetAsEntry").Get("filesystem").Get("root")
-	u.inputState.DroppedFiles = file.NewFileEntryFS(fs)
+	var entries []js.Value
+	for i := 0; i < items.Length(); i++ {
+		kind := items.Index(i).Get("kind").String()
+		switch kind {
+		case "file":
+			entries = append(entries, items.Index(i).Call("webkitGetAsEntry").Get("filesystem").Get("root"))
+		}
+	}
+	if len(entries) > 0 {
+		fs, err := file.NewFileEntryFS(entries)
+		if err != nil {
+			u.setError(err)
+			return
+		}
+		u.inputState.DroppedFiles = fs
+	}
 }
 
 func (u *UserInterface) forceUpdateOnMinimumFPSMode() {
@@ -749,6 +759,8 @@ func (u *UserInterface) shouldFocusFirst(options *RunOptions) bool {
 }
 
 func (u *UserInterface) initOnMainThread(options *RunOptions) error {
+	u.setRunning(true)
+
 	if u.shouldFocusFirst(options) {
 		canvas.Call("focus")
 	}

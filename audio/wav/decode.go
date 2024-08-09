@@ -24,7 +24,16 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/audio/internal/convert"
 )
 
+const (
+	bitDepthInBytesInt16   = 2
+	bitDepthInBytesFloat32 = 4
+)
+
 // Stream is a decoded audio stream.
+//
+// The format is signed 16bit integer little endian PCM (DecodeWithoutResampling, etc.),
+// or 32bit float little endian PCM (DeocdeF32).
+// The channel count is 2.
 type Stream struct {
 	inner      io.ReadSeeker
 	size       int64
@@ -55,79 +64,45 @@ func (s *Stream) SampleRate() int {
 	return s.sampleRate
 }
 
-type stream struct {
-	src        io.Reader
-	headerSize int64
-	dataSize   int64
-	remaining  int64
-}
-
-// Read is implementation of io.Reader's Read.
-func (s *stream) Read(p []byte) (int, error) {
-	if s.remaining <= 0 {
-		return 0, io.EOF
-	}
-	if s.remaining < int64(len(p)) {
-		p = p[0:s.remaining]
-	}
-	n, err := s.src.Read(p)
-	s.remaining -= int64(n)
-	return n, err
-}
-
-// Seek is implementation of io.Seeker's Seek.
+// DecodeF32 decodes WAV (RIFF) data to playable stream in 32bit float, little endian, 2 channels (stereo) format.
 //
-// If the underlying source is not an io.Seeker, Seek panics.
-func (s *stream) Seek(offset int64, whence int) (int64, error) {
-	seeker, ok := s.src.(io.Seeker)
-	if !ok {
-		panic("wav: s.src must be io.Seeker but not")
-	}
-
-	switch whence {
-	case io.SeekStart:
-		offset = offset + s.headerSize
-	case io.SeekCurrent:
-	case io.SeekEnd:
-		offset = s.headerSize + s.dataSize + offset
-		whence = io.SeekStart
-	}
-	n, err := seeker.Seek(offset, whence)
-	if err != nil {
-		return 0, err
-	}
-	if n-s.headerSize < 0 {
-		return 0, fmt.Errorf("wav: invalid offset")
-	}
-	s.remaining = s.dataSize - (n - s.headerSize)
-	// There could be a tail in wav file.
-	if s.remaining < 0 {
-		s.remaining = 0
-		return s.dataSize, nil
-	}
-	return n - s.headerSize, nil
-}
-
-// DecodeWithoutResampling decodes WAV (RIFF) data to playable stream.
+// The src format must be 1 or 2 channels, 8bit or 16bit little endian PCM.
+// The src format is converted into 2 channels and 16bit.
 //
-// The format must be 1 or 2 channels, 8bit or 16bit little endian PCM.
-// The format is converted into 2 channels and 16bit.
-//
-// DecodeWithSampleRate returns error when decoding fails or IO error happens.
+// DecodeF32 returns error when decoding fails or IO error happens.
 //
 // The returned Stream's Seek is available only when src is an io.Seeker.
 //
 // A Stream doesn't close src even if src implements io.Closer.
 // Closing the source is src owner's responsibility.
-func DecodeWithoutResampling(src io.Reader) (*Stream, error) {
-	s, err := decode(src)
+func DecodeF32(src io.Reader) (*Stream, error) {
+	s, err := decode(src, bitDepthInBytesFloat32)
 	if err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
-// DecodeWithSampleRate decodes WAV (RIFF) data to playable stream.
+// DecodeWithoutResampling decodes WAV (RIFF) data to playable stream in signed 16bit integer, little endian, 2 channels (stereo) format.
+//
+// The src format must be 1 or 2 channels, 8bit or 16bit little endian PCM.
+// The src format is converted into 2 channels and 16bit.
+//
+// DecodeWithoutSampleRate returns error when decoding fails or IO error happens.
+//
+// The returned Stream's Seek is available only when src is an io.Seeker.
+//
+// A Stream doesn't close src even if src implements io.Closer.
+// Closing the source is src owner's responsibility.
+func DecodeWithoutResampling(src io.Reader) (*Stream, error) {
+	s, err := decode(src, bitDepthInBytesInt16)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// DecodeWithSampleRate decodes WAV (RIFF) data to playable stream in signed 16bit integer, little endian, 2 channels (stereo) format.
 //
 // The format must be 1 or 2 channels, 8bit or 16bit little endian PCM.
 // The format is converted into 2 channels and 16bit.
@@ -144,7 +119,7 @@ func DecodeWithoutResampling(src io.Reader) (*Stream, error) {
 // Resampling can be a very heavy task. Stream has a cache for resampling, but the size is limited.
 // Do not expect that Stream has a resampling cache even after whole data is played.
 func DecodeWithSampleRate(sampleRate int, src io.Reader) (*Stream, error) {
-	s, err := decode(src)
+	s, err := decode(src, bitDepthInBytesInt16)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +128,7 @@ func DecodeWithSampleRate(sampleRate int, src io.Reader) (*Stream, error) {
 		return s, nil
 	}
 
-	r := convert.NewResampling(s.inner, s.size, s.sampleRate, sampleRate)
+	r := convert.NewResampling(s.inner, s.size, s.sampleRate, sampleRate, bitDepthInBytesInt16)
 	return &Stream{
 		inner:      r,
 		size:       r.Length(),
@@ -161,7 +136,7 @@ func DecodeWithSampleRate(sampleRate int, src io.Reader) (*Stream, error) {
 	}, nil
 }
 
-func decode(src io.Reader) (*Stream, error) {
+func decode(src io.Reader, bitDepthInBytes int) (*Stream, error) {
 	buf := make([]byte, 12)
 	n, err := io.ReadFull(src, buf)
 	if n != len(buf) {
@@ -185,8 +160,8 @@ func decode(src io.Reader) (*Stream, error) {
 	var sampleRate int
 chunks:
 	for {
-		buf := make([]byte, 8)
-		n, err := io.ReadFull(src, buf)
+		var buf [8]byte
+		n, err := io.ReadFull(src, buf[:])
 		if n != len(buf) {
 			return nil, fmt.Errorf("wav: invalid header")
 		}
@@ -243,15 +218,11 @@ chunks:
 			headerSize += size
 		}
 	}
-	var s io.ReadSeeker = &stream{
-		src:        src,
-		headerSize: headerSize,
-		dataSize:   dataSize,
-		remaining:  dataSize,
-	}
+
+	var s io.ReadSeeker = newSectionReader(src, headerSize, dataSize)
 
 	if mono || bitsPerSample != 16 {
-		s = convert.NewStereo16(s, mono, bitsPerSample != 16)
+		s = convert.NewStereoI16(s, mono, bitsPerSample != 16)
 		if mono {
 			dataSize *= 2
 		}
@@ -259,6 +230,12 @@ chunks:
 			dataSize *= 2
 		}
 	}
+
+	if bitDepthInBytes == bitDepthInBytesFloat32 {
+		s = convert.NewFloat32BytesReadSeekerFromInt16BytesReadSeeker(s)
+		dataSize *= 2
+	}
+
 	return &Stream{
 		inner:      s,
 		size:       dataSize,
@@ -266,7 +243,7 @@ chunks:
 	}, nil
 }
 
-// Decode decodes WAV (RIFF) data to playable stream.
+// Decode decodes WAV (RIFF) data to playable stream in signed 16bit integer, little endian, 2 channels (stereo) format.
 //
 // The format must be 1 or 2 channels, 8bit or 16bit little endian PCM.
 // The format is converted into 2 channels and 16bit.

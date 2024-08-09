@@ -42,10 +42,8 @@ type SineWave struct {
 	minFrequency int
 	maxFrequency int
 
-	// position is the position in the wave length in the range of [0, 1).
-	position float64
-
-	remaining []byte
+	// pos is the position in the wave length in the range of [0, 1).
+	pos float64
 
 	m sync.Mutex
 }
@@ -77,39 +75,29 @@ func (s *SineWave) Read(buf []byte) (int, error) {
 	s.m.Lock()
 	defer s.m.Unlock()
 
-	if len(s.remaining) > 0 {
-		n := copy(buf, s.remaining)
-		s.remaining = s.remaining[n:]
-		return n, nil
-	}
+	const bytesPerSample = 8
 
-	var origBuf []byte
-	if len(buf)%4 > 0 {
-		origBuf = buf
-		buf = make([]byte, len(origBuf)+4-len(origBuf)%4)
-	}
+	n := len(buf) / bytesPerSample * bytesPerSample
+	buf = buf[:n]
 
 	length := sampleRate / float64(s.frequency)
-	p := int64(length * s.position)
-	for i := 0; i < len(buf)/4; i++ {
-		const max = 32767
-		b := int16(math.Sin(2*math.Pi*float64(p)/float64(length)) * max)
-		buf[4*i] = byte(b)
-		buf[4*i+1] = byte(b >> 8)
-		buf[4*i+2] = byte(b)
-		buf[4*i+3] = byte(b >> 8)
+	p := float64(length * s.pos)
+	for i := 0; i < n/bytesPerSample; i++ {
+		v := math.Float32bits(float32(math.Sin(2 * math.Pi * p / length)))
+		buf[8*i] = byte(v)
+		buf[8*i+1] = byte(v >> 8)
+		buf[8*i+2] = byte(v >> 16)
+		buf[8*i+3] = byte(v >> 24)
+		buf[8*i+4] = byte(v)
+		buf[8*i+5] = byte(v >> 8)
+		buf[8*i+6] = byte(v >> 16)
+		buf[8*i+7] = byte(v >> 24)
 		p++
 	}
 
-	s.position = float64(p) / float64(length)
-	s.position = s.position - math.Floor(s.position)
+	_, s.pos = math.Modf(p / length)
 
-	if origBuf != nil {
-		n := copy(origBuf, buf)
-		s.remaining = buf[n:]
-		return n, nil
-	}
-	return len(buf), nil
+	return n, nil
 }
 
 func NewGame() *Game {
@@ -124,7 +112,7 @@ func (g *Game) Update() error {
 	}
 	if g.player == nil {
 		g.sineWave = NewSineWave()
-		p, err := g.audioContext.NewPlayer(g.sineWave)
+		p, err := g.audioContext.NewPlayerF32(g.sineWave)
 		if err != nil {
 			return err
 		}

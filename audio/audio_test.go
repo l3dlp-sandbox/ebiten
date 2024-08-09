@@ -16,6 +16,7 @@ package audio_test
 
 import (
 	"bytes"
+	"io"
 	"runtime"
 	"testing"
 	"time"
@@ -111,6 +112,57 @@ func TestPauseBeforeInit(t *testing.T) {
 	p.Play()
 	p.Pause()
 	p.Play()
+
+	if err := audio.UpdateForTesting(); err != nil {
+		t.Error(err)
+	}
+}
+
+type emptySource struct{}
+
+func (emptySource) Read(buf []byte) (int, error) {
+	return len(buf), nil
+}
+
+func TestNonSeekableSource(t *testing.T) {
+	if runtime.GOOS == "js" {
+		t.Skip("infinite steams in tests cannot be treated well on browsers")
+	}
+
+	setup()
+	defer teardown()
+
+	p, err := context.NewPlayer(emptySource{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p.Play()
+	p.Pause()
+
+	if err := audio.UpdateForTesting(); err != nil {
+		t.Error(err)
+	}
+}
+
+type uncomparableSource []int
+
+func (uncomparableSource) Read(buf []byte) (int, error) {
+	return 0, io.EOF
+}
+
+// Issue #3039
+func TestUncomparableSource(t *testing.T) {
+	setup()
+	defer teardown()
+
+	p, err := context.NewPlayer(uncomparableSource{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	p.Play()
+	p.Pause()
 
 	if err := audio.UpdateForTesting(); err != nil {
 		t.Error(err)

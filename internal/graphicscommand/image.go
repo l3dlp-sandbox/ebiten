@@ -142,7 +142,7 @@ func (i *Image) DrawTriangles(srcs [graphics.ShaderSrcImageCount]*Image, vertice
 	}
 	i.flushBufferedWritePixels()
 
-	theCommandQueueManager.enqueueDrawTrianglesCommand([graphics.ShaderDstImageCount]*Image{i}, srcs, vertices, indices, blend, dstRegion, srcRegions, shader, uniforms, fillRule)
+	theCommandQueueManager.enqueueDrawTrianglesCommand(i, srcs, vertices, indices, blend, dstRegion, srcRegions, shader, uniforms, fillRule)
 }
 
 // ReadPixels reads the image's pixels.
@@ -234,6 +234,6 @@ func LogImagesInfo(images []*Image) {
 		if i.screen {
 			screen = " (screen)"
 		}
-		debug.Logf("  %d: (%d, %d)%s\n", i.id, w, h, screen)
+		debug.FrameLogf("  %d: (%d, %d)%s\n", i.id, w, h, screen)
 	}
 }

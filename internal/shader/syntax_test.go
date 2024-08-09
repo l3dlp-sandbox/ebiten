@@ -4277,7 +4277,7 @@ func Bar() (int, int) {
 	}
 }
 
-// Issue #2926
+// Issue #2926, #2989
 func TestSyntaxNonTypeExpression(t *testing.T) {
 	if _, err := compileToIR([]byte(`package main
 
@@ -4307,6 +4307,17 @@ func Foo() {
 }
 
 func Bar() float {
+	return 1.0 + Foo
+}
+`)); err == nil {
+		t.Error("compileToIR must return an error but did not")
+	}
+	if _, err := compileToIR([]byte(`package main
+
+func Foo() {
+}
+
+func Bar() float {
 	return Foo.x
 }
 `)); err == nil {
@@ -4322,5 +4333,97 @@ func Bar() float {
 }
 `)); err == nil {
 		t.Error("compileToIR must return an error but did not")
+	}
+}
+
+// Issue #2993
+func TestSyntaxIfAndConstBool(t *testing.T) {
+	if _, err := compileToIR([]byte(`package main
+
+func Foo() int {
+	const X = true
+	if X {
+		return 1
+	}
+	return 0
+}
+`)); err != nil {
+		t.Error(err)
+	}
+	if _, err := compileToIR([]byte(`package main
+
+func Foo() int {
+	const X bool = true
+	if X {
+		return 1
+	}
+	return 0
+}
+`)); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestSyntaxIndex(t *testing.T) {
+	// Issue #3011
+	if _, err := compileToIR([]byte(`package main
+
+func Foo() float {
+	var a int
+	var b vec4
+	return b[a]
+}
+`)); err == nil {
+		t.Error("compileToIR must return an error but did not")
+	}
+	if _, err := compileToIR([]byte(`package main
+
+func Foo() int {
+	var a int
+	var b ivec4
+	return b[a]
+}
+`)); err == nil {
+		t.Error("compileToIR must return an error but did not")
+	}
+	if _, err := compileToIR([]byte(`package main
+
+func Foo() float {
+	var a int
+	var b mat4
+	return b[a][0]
+}
+`)); err != nil {
+		t.Error(err)
+	}
+	if _, err := compileToIR([]byte(`package main
+
+func Foo() float {
+	const a = 0
+	var b vec4
+	return b[a]
+}
+`)); err != nil {
+		t.Error(err)
+	}
+	if _, err := compileToIR([]byte(`package main
+
+func Foo() int {
+	const a = 0
+	var b ivec4
+	return b[a]
+}
+`)); err != nil {
+		t.Error(err)
+	}
+	if _, err := compileToIR([]byte(`package main
+
+func Foo() float {
+	const a = 0
+	var b mat4
+	return b[a][0]
+}
+`)); err != nil {
+		t.Error(err)
 	}
 }

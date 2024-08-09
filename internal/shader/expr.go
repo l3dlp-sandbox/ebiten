@@ -88,6 +88,10 @@ func (cs *compileState) parseExpr(block *block, fname string, expr ast.Expr, mar
 			return nil, nil, nil, false
 		}
 		stmts = append(stmts, ss...)
+		if len(ts) == 0 {
+			cs.addError(e.Pos(), fmt.Sprintf("unexpected binary operator: %s", e.Y))
+			return nil, nil, nil, false
+		}
 		rhst := ts[0]
 
 		op := e.Op
@@ -1145,6 +1149,11 @@ func (cs *compileState) parseExpr(block *block, fname string, expr ast.Expr, mar
 		}
 		x := exprs[0]
 		t := ts[0]
+
+		if (t.IsFloatVector() || t.IsIntVector()) && idx.Const == nil {
+			cs.addError(e.Pos(), fmt.Sprintf("index must be a constant for the type %s", t.String()))
+			return nil, nil, nil, false
+		}
 
 		var typ shaderir.Type
 		switch t.Main {
