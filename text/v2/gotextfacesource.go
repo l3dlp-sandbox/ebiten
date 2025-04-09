@@ -66,6 +66,8 @@ type GoTextFaceSource struct {
 	outputCache     *cache[goTextOutputCacheKey, goTextOutputCacheValue]
 	glyphImageCache map[float64]*cache[goTextGlyphImageCacheKey, *ebiten.Image]
 
+	unscaledMetrics Metrics
+
 	addr *GoTextFaceSource
 
 	shaper shaping.HarfbuzzShaper
@@ -180,8 +182,7 @@ func (g *GoTextFaceSource) shape(text string, face *GoTextFace) ([]shaping.Outpu
 }
 
 func (g *GoTextFaceSource) shapeImpl(text string, face *GoTextFace) ([]shaping.Output, []glyph) {
-	f := face.Source.f
-	f.SetVariations(face.variations)
+	g.f.SetVariations(face.variations)
 
 	runes := []rune(text)
 	input := shaping.Input{
@@ -189,7 +190,7 @@ func (g *GoTextFaceSource) shapeImpl(text string, face *GoTextFace) ([]shaping.O
 		RunStart:     0,
 		RunEnd:       len(runes),
 		Direction:    face.diDirection(),
-		Face:         f,
+		Face:         g.f,
 		FontFeatures: face.features,
 		Size:         float64ToFixed26_6(face.Size),
 		Script:       face.gScript(),
@@ -197,7 +198,7 @@ func (g *GoTextFaceSource) shapeImpl(text string, face *GoTextFace) ([]shaping.O
 	}
 
 	var seg shaping.Segmenter
-	inputs := seg.Split(input, &singleFontmap{face: f})
+	inputs := seg.Split(input, &singleFontmap{face: g.f})
 
 	// Reverse the input for RTL texts.
 	if face.Direction == DirectionRightToLeft {
@@ -224,7 +225,7 @@ func (g *GoTextFaceSource) shapeImpl(text string, face *GoTextFace) ([]shaping.O
 			switch data := g.f.GlyphData(gl.GlyphID).(type) {
 			case font.GlyphOutline:
 				if out.Direction.IsSideways() {
-					data.Sideways(fixed26_6ToFloat32(-gl.YOffset) / fixed26_6ToFloat32(out.Size) * float32(f.Upem()))
+					data.Sideways(fixed26_6ToFloat32(-gl.YOffset) / fixed26_6ToFloat32(out.Size) * float32(g.f.Upem()))
 				}
 				segs = data.Segments
 			case font.GlyphSVG:
@@ -269,6 +270,36 @@ func (g *GoTextFaceSource) getOrCreateGlyphImage(goTextFace *GoTextFace, key goT
 		g.glyphImageCache[goTextFace.Size] = newCache[goTextGlyphImageCacheKey, *ebiten.Image](128 * glyphVariationCount(goTextFace))
 	}
 	return g.glyphImageCache[goTextFace.Size].getOrCreate(key, create)
+}
+
+func (g *GoTextFaceSource) metrics(size float64) Metrics {
+	um := g.unscaledMetrics
+	if um.HAscent == 0 && um.HDescent == 0 && um.VAscent == 0 && um.VDescent == 0 {
+		if h, ok := g.f.FontHExtents(); ok {
+			um.HLineGap = float64(h.LineGap)
+			um.HAscent = float64(h.Ascender)
+			um.HDescent = float64(-h.Descender)
+		}
+		if v, ok := g.f.FontVExtents(); ok {
+			um.VLineGap = float64(v.LineGap)
+			um.VAscent = float64(v.Ascender)
+			um.VDescent = float64(-v.Descender)
+		}
+		um.XHeight = float64(g.f.LineMetric(font.XHeight))
+		um.CapHeight = float64(g.f.LineMetric(font.CapHeight))
+	}
+
+	scale := g.scale(size)
+	return Metrics{
+		HLineGap:  um.HLineGap * scale,
+		HAscent:   um.HAscent * scale,
+		HDescent:  um.HDescent * scale,
+		VLineGap:  um.VLineGap * scale,
+		VAscent:   um.VAscent * scale,
+		VDescent:  um.VDescent * scale,
+		XHeight:   um.XHeight * scale,
+		CapHeight: um.CapHeight * scale,
+	}
 }
 
 type singleFontmap struct {
